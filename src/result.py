@@ -38,7 +38,8 @@ class MessageTrace(Generic[M]):
     def __post_init__(self) -> None:
         """Ensure details are immutable by converting to MappingProxyType."""
         if self.details is not None and not isinstance(self.details, MappingProxyType):
-            object.__setattr__(self, 'details', MappingProxyType(self.details))
+            # Create a copy to prevent external modifications
+            object.__setattr__(self, 'details', MappingProxyType(dict(self.details)))
 
     @classmethod
     def info(cls, message: M, code: Optional[str] = None,
@@ -228,7 +229,8 @@ class Ok(Generic[V, M],
 
         # Ensure metadata is immutable by converting to MappingProxyType.
         if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
-            object.__setattr__(self, 'metadata', MappingProxyType(self.metadata))
+            # Create a copy to prevent external modifications
+            object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
 
     def has_value(self) -> bool:
         """Check if value is present."""
@@ -295,7 +297,8 @@ class Err(Generic[E, M],
         
         # Ensure metadata is immutable by converting to MappingProxyType.
         if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
-            object.__setattr__(self, 'metadata', MappingProxyType(self.metadata))
+            # Create a copy to prevent external modifications
+            object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
     
     def has_trace(self) -> bool:
         """Check if trace is present."""
