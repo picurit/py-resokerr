@@ -198,11 +198,38 @@ class Ok(Generic[V, M],
         # Ensure messages are immutable tuples.
         if not isinstance(self.messages, tuple):
             object.__setattr__(self, 'messages', tuple(self.messages))
-        
+
+        # Downgrade ERROR messages to WARNING (Ok cannot contain ERROR severity).
+        # This preserves the message content while maintaining semantic correctness.
+        converted_messages: list[MessageTrace[M]] = []
+        for msg in self.messages:
+            if msg.severity == TraceSeverityLevel.ERROR:
+                # Merge existing details with downgrade info
+                original_details = dict(msg.details) if msg.details else {}
+                downgrade_info = {
+                    "downgraded": {
+                        "from": TraceSeverityLevel.ERROR.value,
+                        "reason": "Ok instances cannot contain ERROR messages"
+                    }
+                }
+                merged_details = {**original_details, **downgrade_info}
+
+                converted_messages.append(MessageTrace(
+                    message=msg.message,
+                    severity=TraceSeverityLevel.WARNING,
+                    code=msg.code,
+                    details=merged_details,
+                    stack_trace=msg.stack_trace
+                ))
+            else:
+                converted_messages.append(msg)
+
+        object.__setattr__(self, 'messages', tuple(converted_messages))
+
         # Ensure metadata is immutable by converting to MappingProxyType.
         if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
             object.__setattr__(self, 'metadata', MappingProxyType(self.metadata))
-            
+
     def has_value(self) -> bool:
         """Check if value is present."""
         return self.value is not None
