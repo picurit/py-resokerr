@@ -5,6 +5,7 @@ from types import MappingProxyType
 from typing import (
     Any,
     Dict,
+    final,
     Generic,
     Mapping,
     Optional,
@@ -171,7 +172,8 @@ class StatusMixin:
         """Check if this is an error result."""
         return isinstance(self, Err)
 
-@dataclass(frozen=True)
+@final
+@dataclass(frozen=True, slots=True)
 class Ok(Generic[V, M],
          MetadataMixin,
          InfoCollectorMixin[M],
@@ -188,8 +190,6 @@ class Ok(Generic[V, M],
     By design, `Ok` instances CANNOT contain ERROR messages, as errors
     indicate failure and should be represented by `Err` instances.
     """
-    __match_args__ = ('value', 'messages', 'metadata')
-    
     value: Optional[V]
     messages: Tuple[MessageTrace[M], ...] = field(default_factory=tuple)
     metadata: Optional[Mapping[str, Any]] = None
@@ -264,7 +264,8 @@ class Ok(Generic[V, M],
             metadata=metadata
         )
 
-@dataclass(frozen=True)
+@final
+@dataclass(frozen=True, slots=True)
 class Err(Generic[E, M],
           MetadataMixin,
           ErrorCollectorMixin[M],
@@ -283,8 +284,6 @@ class Err(Generic[E, M],
     Err instances can contain multiple message types to provide rich
     diagnostic information for debugging and error reporting.
     """
-    __match_args__ = ('trace', 'messages', 'metadata')
-    
     trace: Optional[E]
     messages: Tuple[MessageTrace[M], ...] = field(default_factory=tuple)
     metadata: Optional[Mapping[str, Any]] = None
