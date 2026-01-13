@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resokerr"
+version = "0.0.0"
+authors = [
+    { name="Picurit", email="dev@picurit.com" },
+]
+description = "A Python library for simple Result/Ok/Err return types with rich message tracing and metadata support."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[dependency-groups]
+test = [
+    "pytest~=9.0.0",
+    "pytest-cov~=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/picurit/py-resokerr"
+Issues = "https://github.com/picurit/py-resokerr/issues"
