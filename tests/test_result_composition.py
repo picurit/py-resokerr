@@ -1,10 +1,7 @@
 """Tests for Result type aliases and composition patterns."""
 import pytest
-from typing import Union, get_args
-import sys
-sys.path.insert(0, '/workspace/development/frappe-bench/apps/dendriva/dendriva/utils/py-resokerr/src')
 
-from result import Ok, Err, Result, ResultBase, MessageTrace
+from resokerr.core import Ok, Err, Result, ResultBase, MessageTrace
 
 
 class TestResultTypeAlias:

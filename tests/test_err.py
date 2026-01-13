@@ -2,10 +2,8 @@
 import pytest
 from types import MappingProxyType
 from typing import Any, Dict
-import sys
-sys.path.insert(0, '/workspace/development/frappe-bench/apps/dendriva/dendriva/utils/py-resokerr/src')
 
-from result import Err, MessageTrace, TraceSeverityLevel
+from resokerr.core import Err, MessageTrace, TraceSeverityLevel
 
 
 class TestErrCreation:

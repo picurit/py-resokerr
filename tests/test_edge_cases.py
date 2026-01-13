@@ -1,10 +1,7 @@
 """Additional edge case tests for comprehensive coverage."""
 import pytest
-from types import MappingProxyType
-import sys
-sys.path.insert(0, '/workspace/development/frappe-bench/apps/dendriva/dendriva/utils/py-resokerr/src')
 
-from result import Ok, Err, Result, MessageTrace, TraceSeverityLevel
+from resokerr.core import Ok, Err, Result, MessageTrace, TraceSeverityLevel
 
 
 class TestEdgeCases:
