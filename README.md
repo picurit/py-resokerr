@@ -1,4 +1,8 @@
-# resokerr
+<p align="center">
+  <img src="docs/images/Resokerr-Logo.png" alt="Resokerr Logo" width="200">
+</p>
+
+# Resokerr
 
 A lightweight, pragmatic Python library for handling results using `Result/Ok/Err` types with rich message tracing and metadata support.
 
