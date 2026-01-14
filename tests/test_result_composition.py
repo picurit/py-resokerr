@@ -23,9 +23,9 @@ class TestResultTypeAlias:
 
     def test_result_accepts_err_instance(self):
         """Test that Result type alias can represent Err instances."""
-        err: Result[int, Exception] = Err(trace=ValueError("Error"))
+        err: Result[int, Exception] = Err(cause=ValueError("Error"))
         assert err.is_err()
-        assert isinstance(err.trace, ValueError)
+        assert isinstance(err.cause, ValueError)
 
     def test_result_union_behavior(self):
         """Test that Result behaves as a union type."""
@@ -33,10 +33,10 @@ class TestResultTypeAlias:
             if result.is_ok():
                 return f"Success: {result.value}"
             else:
-                return f"Error: {result.trace}"
+                return f"Error: {result.cause}"
         
         ok_result = Ok(value=42)
-        err_result = Err(trace="Failed")
+        err_result = Err(cause="Failed")
         
         assert process_result(ok_result) == "Success: 42"
         assert process_result(err_result) == "Error: Failed"
@@ -106,7 +106,7 @@ class TestOkErrIndependence:
 
     def test_err_instance_not_instance_of_ok(self):
         """Test that Err instances are not instances of Ok."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         assert not isinstance(err, Ok)
 
     def test_cannot_create_result_base_class_instance(self):
@@ -143,7 +143,7 @@ class TestCompositionPatterns:
 
     def test_err_composes_mixins(self):
         """Test that Err composes functionality from mixins."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         # Check that Err has methods from different mixins
         # From ErrorCollectorMixin
@@ -168,7 +168,7 @@ class TestCompositionPatterns:
     def test_mixin_methods_work_independently(self):
         """Test that mixin methods work independently on Ok and Err."""
         ok = Ok(value=42).with_info("Info").with_warning("Warning")
-        err = Err(trace="Error").with_error("Error").with_info("Info")
+        err = Err(cause="Error").with_error("Error").with_info("Info")
         
         # Ok should have info and warnings
         assert ok.has_info()
@@ -192,7 +192,7 @@ class TestNoDirectConversion:
 
     def test_no_err_to_ok_conversion_method(self):
         """Test that Err has no method to convert to Ok."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         conversion_methods = ['to_ok', 'as_ok', 'into_ok', 'to_success', 'as_success']
         for method in conversion_methods:
@@ -205,7 +205,7 @@ class TestNoDirectConversion:
         
         # Manual conversion: create new Err with info from Ok
         err = Err(
-            trace="Converted to error",
+            cause="Converted to error",
             messages=ok.messages,
             metadata=ok.metadata
         )
@@ -228,10 +228,10 @@ class TestTypeChecking:
                 return f"Value: {result.value}"
             else:
                 # Type checker should narrow this to Err
-                return f"Error: {result.trace}"
+                return f"Error: {result.cause}"
         
         ok_result = Ok(value=42)
-        err_result = Err(trace="Failed")
+        err_result = Err(cause="Failed")
         
         assert handle_result(ok_result) == "Value: 42"
         assert handle_result(err_result) == "Error: Failed"
@@ -242,23 +242,23 @@ class TestTypeChecking:
             if isinstance(result, Ok):
                 return f"Ok with value: {result.value}"
             elif isinstance(result, Err):
-                return f"Err with trace: {result.trace}"
+                return f"Err with cause: {result.cause}"
             else:
                 return "Unknown"
         
         ok_result = Ok(value=100)
-        err_result = Err(trace="Error occurred")
+        err_result = Err(cause="Error occurred")
         
         assert process(ok_result) == "Ok with value: 100"
-        assert process(err_result) == "Err with trace: Error occurred"
+        assert process(err_result) == "Err with cause: Error occurred"
 
     def test_union_type_behavior(self):
         """Test that Result behaves as a union of Ok and Err."""
         results: list[Result[int, str]] = [
             Ok(value=1),
-            Err(trace="error1"),
+            Err(cause="error1"),
             Ok(value=2),
-            Err(trace="error2"),
+            Err(cause="error2"),
         ]
         
         ok_count = sum(1 for r in results if r.is_ok())
@@ -275,9 +275,9 @@ class TestPragmaticPythonicUsage:
         """Test early return pattern with Result."""
         def validate_age(age: int) -> Result[int, str]:
             if age < 0:
-                return Err(trace="Age cannot be negative")
+                return Err(cause="Age cannot be negative")
             if age > 150:
-                return Err(trace="Age too high")
+                return Err(cause="Age too high")
             return Ok(value=age)
         
         result1 = validate_age(-5)
@@ -330,11 +330,11 @@ class TestPragmaticPythonicUsage:
         """Test using Result for control flow."""
         def authenticate(username: str, password: str) -> Result[dict, str]:
             if not username:
-                return Err(trace="Username required")
+                return Err(cause="Username required")
             if not password:
-                return Err(trace="Password required")
+                return Err(cause="Password required")
             if username != "admin" or password != "secret":
-                return Err(trace="Invalid credentials")
+                return Err(cause="Invalid credentials")
             
             return Ok(value={"user_id": 1, "username": username})
         
@@ -344,7 +344,7 @@ class TestPragmaticPythonicUsage:
         result3 = authenticate("user", "wrong")
         result4 = authenticate("admin", "secret")
         
-        assert result1.is_err() and "Username" in result1.trace
-        assert result2.is_err() and "Password" in result2.trace
-        assert result3.is_err() and "Invalid" in result3.trace
+        assert result1.is_err() and "Username" in result1.cause
+        assert result2.is_err() and "Password" in result2.cause
+        assert result3.is_err() and "Invalid" in result3.cause
         assert result4.is_ok() and result4.value["user_id"] == 1

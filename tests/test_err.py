@@ -9,45 +9,45 @@ from resokerr.core import Err, MessageTrace, TraceSeverityLevel
 class TestErrCreation:
     """Test Err instantiation and basic properties."""
 
-    def test_err_with_trace(self):
-        """Test creating an Err with a trace."""
-        err = Err(trace="Something went wrong")
-        assert err.trace == "Something went wrong"
-        assert err.has_trace()
+    def test_err_with_cause(self):
+        """Test creating an Err with a cause."""
+        err = Err(cause="Something went wrong")
+        assert err.cause == "Something went wrong"
+        assert err.has_cause()
         assert err.is_err()
         assert not err.is_ok()
 
-    def test_err_without_trace(self):
-        """Test creating an Err without a trace (None)."""
-        err = Err(trace=None)
-        assert err.trace is None
-        assert not err.has_trace()
+    def test_err_without_cause(self):
+        """Test creating an Err without a cause (None)."""
+        err = Err(cause=None)
+        assert err.cause is None
+        assert not err.has_cause()
         assert err.is_err()
 
-    def test_err_with_exception_trace(self):
-        """Test Err with exception as trace."""
+    def test_err_with_exception_cause(self):
+        """Test Err with exception as cause."""
         exception = ValueError("Invalid input")
-        err = Err(trace=exception)
-        assert err.trace == exception
-        assert isinstance(err.trace, ValueError)
+        err = Err(cause=exception)
+        assert err.cause == exception
+        assert isinstance(err.cause, ValueError)
 
-    def test_err_with_complex_trace(self):
-        """Test Err with complex data structure as trace."""
-        trace = {"error_type": "ValidationError", "details": ["field1", "field2"]}
-        err = Err(trace=trace)
-        assert err.trace == trace
-        assert err.trace["error_type"] == "ValidationError"
+    def test_err_with_complex_cause(self):
+        """Test Err with complex data structure as cause."""
+        cause = {"error_type": "ValidationError", "details": ["field1", "field2"]}
+        err = Err(cause=cause)
+        assert err.cause == cause
+        assert err.cause["error_type"] == "ValidationError"
 
     def test_err_with_empty_messages(self):
         """Test Err with no messages."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         assert err.messages == ()
         assert len(err.messages) == 0
 
     def test_err_with_metadata(self):
         """Test Err with metadata."""
         metadata = {"timestamp": "2026-01-09", "request_id": "abc-123"}
-        err = Err(trace="Error", metadata=metadata)
+        err = Err(cause="Error", metadata=metadata)
         assert err.metadata == metadata
         assert err.has_metadata()
 
@@ -57,10 +57,10 @@ class TestErrImmutability:
 
     def test_err_is_frozen(self):
         """Test that Err is frozen and cannot be modified."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         with pytest.raises(AttributeError):
-            err.trace = "New error"
+            err.cause = "New error"
         
         with pytest.raises(AttributeError):
             err.messages = (MessageTrace.error("New"),)
@@ -68,7 +68,7 @@ class TestErrImmutability:
     def test_messages_are_tuple(self):
         """Test that messages are stored as immutable tuple."""
         messages = [MessageTrace.error("Error 1"), MessageTrace.error("Error 2")]
-        err = Err(trace="Error", messages=messages)
+        err = Err(cause="Error", messages=messages)
         
         assert isinstance(err.messages, tuple)
         assert len(err.messages) == 2
@@ -76,7 +76,7 @@ class TestErrImmutability:
     def test_metadata_converted_to_mapping_proxy(self):
         """Test that metadata dict is converted to immutable MappingProxyType."""
         metadata: Dict[str, Any] = {"key": "value"}
-        err = Err(trace="Error", metadata=metadata)
+        err = Err(cause="Error", metadata=metadata)
         
         assert isinstance(err.metadata, MappingProxyType)
         # Store original value
@@ -92,7 +92,7 @@ class TestErrMessageMethods:
 
     def test_with_error(self):
         """Test adding an error message."""
-        err1 = Err(trace="Original error")
+        err1 = Err(cause="Original error")
         err2 = err1.with_error("Error message", code="ERR_001")
         
         # Original should be unchanged
@@ -105,7 +105,7 @@ class TestErrMessageMethods:
 
     def test_with_info(self):
         """Test adding an info message to Err."""
-        err1 = Err(trace="Error")
+        err1 = Err(cause="Error")
         err2 = err1.with_info("Info message", code="INFO_001")
         
         assert len(err2.messages) == 1
@@ -114,7 +114,7 @@ class TestErrMessageMethods:
 
     def test_with_warning(self):
         """Test adding a warning message to Err."""
-        err1 = Err(trace="Error")
+        err1 = Err(cause="Error")
         err2 = err1.with_warning("Warning message", code="WARN_001")
         
         assert len(err2.messages) == 1
@@ -123,7 +123,7 @@ class TestErrMessageMethods:
 
     def test_with_error_chaining(self):
         """Test chaining multiple with_error calls."""
-        err = (Err(trace="Root cause")
+        err = (Err(cause="Root cause")
                .with_error("Error 1")
                .with_error("Error 2")
                .with_error("Error 3"))
@@ -135,7 +135,7 @@ class TestErrMessageMethods:
 
     def test_mixed_message_chaining(self):
         """Test chaining mixed message types."""
-        err = (Err(trace="Error")
+        err = (Err(cause="Error")
                .with_info("Attempting operation")
                .with_warning("Warning encountered")
                .with_error("Operation failed"))
@@ -148,13 +148,13 @@ class TestErrMessageMethods:
     def test_with_error_includes_details(self):
         """Test adding error message with details."""
         details = {"field": "email", "constraint": "unique"}
-        err = Err(trace="Validation error").with_error("Duplicate email", details=details)
+        err = Err(cause="Validation error").with_error("Duplicate email", details=details)
         
         assert err.messages[0].details == details
 
     def test_with_metadata(self):
         """Test replacing metadata."""
-        err1 = Err(trace="Error", metadata={"old": "data"})
+        err1 = Err(cause="Error", metadata={"old": "data"})
         err2 = err1.with_metadata({"new": "data"})
         
         assert err1.metadata["old"] == "data"
@@ -172,7 +172,7 @@ class TestErrMessageFiltering:
             MessageTrace.info("Info 1"),
             MessageTrace.error("Error 2")
         ]
-        err = Err(trace="Error", messages=messages)
+        err = Err(cause="Error", messages=messages)
         
         error_msgs = err.error_messages
         assert len(error_msgs) == 2
@@ -186,7 +186,7 @@ class TestErrMessageFiltering:
             MessageTrace.info("Info 1"),
             MessageTrace.info("Info 2")
         ]
-        err = Err(trace="Error", messages=messages)
+        err = Err(cause="Error", messages=messages)
         
         info_msgs = err.info_messages
         assert len(info_msgs) == 2
@@ -200,7 +200,7 @@ class TestErrMessageFiltering:
             MessageTrace.warning("Warning 1"),
             MessageTrace.warning("Warning 2")
         ]
-        err = Err(trace="Error", messages=messages)
+        err = Err(cause="Error", messages=messages)
         
         warn_msgs = err.warning_messages
         assert len(warn_msgs) == 2
@@ -209,7 +209,7 @@ class TestErrMessageFiltering:
 
     def test_has_errors(self):
         """Test has_errors() method."""
-        err1 = Err(trace="Error")
+        err1 = Err(cause="Error")
         assert not err1.has_errors()
         
         err2 = err1.with_error("Error message")
@@ -217,7 +217,7 @@ class TestErrMessageFiltering:
 
     def test_has_info(self):
         """Test has_info() method."""
-        err1 = Err(trace="Error")
+        err1 = Err(cause="Error")
         assert not err1.has_info()
         
         err2 = err1.with_info("Info message")
@@ -225,7 +225,7 @@ class TestErrMessageFiltering:
 
     def test_has_warnings(self):
         """Test has_warnings() method."""
-        err1 = Err(trace="Error")
+        err1 = Err(cause="Error")
         assert not err1.has_warnings()
         
         err2 = err1.with_warning("Warning message")
@@ -237,7 +237,7 @@ class TestErrProtocolCompliance:
 
     def test_has_messages_protocol(self):
         """Test HasMessages protocol compliance."""
-        err = Err(trace="Error", messages=[MessageTrace.error("Error")])
+        err = Err(cause="Error", messages=[MessageTrace.error("Error")])
         
         assert hasattr(err, 'messages')
         assert isinstance(err.messages, tuple)
@@ -245,7 +245,7 @@ class TestErrProtocolCompliance:
 
     def test_has_error_messages_protocol(self):
         """Test HasErrorMessages protocol compliance."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         assert hasattr(err, 'error_messages')
         assert hasattr(err, 'has_errors')
@@ -253,7 +253,7 @@ class TestErrProtocolCompliance:
 
     def test_has_info_messages_protocol(self):
         """Test HasInfoMessages protocol compliance."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         assert hasattr(err, 'info_messages')
         assert hasattr(err, 'has_info')
@@ -261,7 +261,7 @@ class TestErrProtocolCompliance:
 
     def test_has_warning_messages_protocol(self):
         """Test HasWarningMessages protocol compliance."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         assert hasattr(err, 'warning_messages')
         assert hasattr(err, 'has_warnings')
@@ -269,7 +269,7 @@ class TestErrProtocolCompliance:
 
     def test_has_metadata_protocol(self):
         """Test HasMetadata protocol compliance."""
-        err = Err(trace="Error", metadata={"key": "value"})
+        err = Err(cause="Error", metadata={"key": "value"})
         
         assert hasattr(err, 'metadata')
         assert hasattr(err, 'has_metadata')
@@ -278,7 +278,7 @@ class TestErrProtocolCompliance:
 
     def test_status_mixin(self):
         """Test StatusMixin methods."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         assert hasattr(err, 'is_ok')
         assert hasattr(err, 'is_err')
@@ -291,7 +291,7 @@ class TestErrComposition:
 
     def test_err_is_not_result_subclass(self):
         """Test that Err is not a subclass of any Result base class."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         # Err should not inherit from a Result base class
         assert Err.__bases__ != ()
@@ -302,7 +302,7 @@ class TestErrComposition:
 
     def test_err_cannot_be_converted_to_ok(self):
         """Test that Err cannot be directly converted to Ok."""
-        err = Err(trace="Error")
+        err = Err(cause="Error")
         
         # There should be no method to convert Err to Ok
         assert not hasattr(err, 'to_ok')
@@ -323,9 +323,9 @@ class TestErrWithExceptions:
         try:
             int("not a number")
         except ValueError as e:
-            err = Err(trace=e)
-            assert isinstance(err.trace, ValueError)
-            assert "invalid literal" in str(err.trace).lower()
+            err = Err(cause=e)
+            assert isinstance(err.cause, ValueError)
+            assert "invalid literal" in str(err.cause).lower()
 
     def test_err_with_custom_exception(self):
         """Test Err with custom exception class."""
@@ -336,16 +336,16 @@ class TestErrWithExceptions:
                 super().__init__(message)
         
         custom_exc = CustomException("E001", "Custom error")
-        err = Err(trace=custom_exc)
-        assert err.trace.code == "E001"
-        assert err.trace.message == "Custom error"
+        err = Err(cause=custom_exc)
+        assert err.cause.code == "E001"
+        assert err.cause.message == "Custom error"
 
     def test_err_with_exception_and_error_messages(self):
-        """Test Err with both exception trace and error messages."""
+        """Test Err with both exception cause and error messages."""
         exception = RuntimeError("Runtime problem")
-        err = (Err(trace=exception)
+        err = (Err(cause=exception)
                .with_error("Failed to process data")
                .with_error("Validation failed"))
         
-        assert isinstance(err.trace, RuntimeError)
+        assert isinstance(err.cause, RuntimeError)
         assert len(err.error_messages) == 2

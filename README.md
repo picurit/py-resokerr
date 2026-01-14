@@ -64,12 +64,12 @@ from resokerr import Ok, Err, Result
 ok_result: Ok[int, str] = Ok(value=42)
 
 # Err: Represents failure
-err_result: Err[str, str] = Err(trace="Something went wrong")
+err_result: Err[str, str] = Err(cause="Something went wrong")
 
 # Result: Type alias for Ok | Err (used in function signatures)
 def divide(a: int, b: int) -> Result[float, str]:
     if b == 0:
-        return Err(trace="Division by zero")
+        return Err(cause="Division by zero")
     return Ok(value=a / b)
 ```
 
@@ -127,9 +127,9 @@ from resokerr import Ok, Err, Result
 def validate_age(age: int) -> Result[int, str]:
     """Validate user age."""
     if age < 0:
-        return Err(trace="Age cannot be negative")
+        return Err(cause="Age cannot be negative")
     if age > 150:
-        return Err(trace="Age exceeds maximum")
+        return Err(cause="Age exceeds maximum")
     return Ok(value=age)
 
 # Handle the result
@@ -137,7 +137,7 @@ result = validate_age(25)
 if result.is_ok():
     print(f"Valid age: {result.value}")
 else:
-    print(f"Invalid: {result.trace}")
+    print(f"Invalid: {result.cause}")
 ```
 
 ### With Message Tracing
@@ -192,7 +192,7 @@ def risky_operation(filename: str) -> Result[str, Exception]:
             content = f.read()
         return Ok(value=content)
     except FileNotFoundError as e:
-        return (Err(trace=e)
+        return (Err(cause=e)
             .with_error(
                 f"File '{filename}' not found",
                 code="FILE_NOT_FOUND",
@@ -202,7 +202,7 @@ def risky_operation(filename: str) -> Result[str, Exception]:
             .with_info(f"Attempted to read: {filename}")
         )
     except PermissionError as e:
-        return (Err(trace=e)
+        return (Err(cause=e)
             .with_error(
                 "Permission denied",
                 code="PERMISSION_DENIED",
@@ -213,7 +213,7 @@ def risky_operation(filename: str) -> Result[str, Exception]:
 # Handle errors with full context
 result = risky_operation("config.txt")
 if result.is_err():
-    print(f"Operation failed: {result.trace}")
+    print(f"Operation failed: {result.cause}")
     
     # Access structured error messages
     for error in result.error_messages:
@@ -232,13 +232,13 @@ from resokerr import Ok, Err, Result
 def fetch_user(user_id: int) -> Result[dict, str]:
     """Fetch user from database."""
     if user_id <= 0:
-        return Err(trace="Invalid user ID")
+        return Err(cause="Invalid user ID")
     return Ok(value={"id": user_id, "name": "Alice"})
 
 def validate_user(user: dict) -> Result[dict, str]:
     """Validate user data."""
     if "name" not in user:
-        return Err(trace="User missing name field")
+        return Err(cause="User missing name field")
     return Ok(value=user)
 
 def process_user_pipeline(user_id: int) -> Result[dict, str]:
@@ -263,7 +263,7 @@ if result.is_ok():
     if result.has_info():
         print(f"Info: {result.info_messages[0].message}")
 else:
-    print(f"❌ Failed: {result.trace}")
+    print(f"❌ Failed: {result.cause}")
 ```
 
 ## Advanced Features
@@ -363,7 +363,7 @@ if result.has_metadata():
 ```python
 def good_example(data: dict) -> Result[dict, str]:
     if not data:
-        return Err(trace="Empty data").with_error("Data cannot be empty", code="EMPTY_DATA")
+        return Err(cause="Empty data").with_error("Data cannot be empty", code="EMPTY_DATA")
     
     result = Ok(value=data).with_info("Data validated")
     return result.with_metadata({"validated_at": "2026-01-13"})
@@ -412,12 +412,12 @@ def fetch_api_data(url: str) -> Result[dict, Exception]:
         return result
         
     except requests.exceptions.Timeout as e:
-        return (Err(trace=e)
+        return (Err(cause=e)
             .with_error("Request timeout", code="TIMEOUT")
             .with_info(f"URL: {url}"))
     
     except requests.exceptions.HTTPError as e:
-        return (Err(trace=e)
+        return (Err(cause=e)
             .with_error(f"HTTP error: {e.response.status_code}", code="HTTP_ERROR")
             .with_metadata({"status_code": e.response.status_code}))
 ```
@@ -433,10 +433,10 @@ def validate_registration_form(form_data: dict) -> Result[dict, str]:
     
     # Required fields
     if not form_data.get("email"):
-        return Err(trace="Missing email").with_error("Email is required", code="MISSING_EMAIL")
+        return Err(cause="Missing email").with_error("Email is required", code="MISSING_EMAIL")
     
     if not form_data.get("password"):
-        return Err(trace="Missing password").with_error("Password is required", code="MISSING_PASSWORD")
+        return Err(cause="Missing password").with_error("Password is required", code="MISSING_PASSWORD")
     
     # Warnings for optional fields
     if not form_data.get("phone"):
@@ -478,7 +478,7 @@ def save_to_database(data: dict) -> Result[int, Exception]:
         # Validate data
         if not validate_schema(data):
             rollback_transaction(transaction_id)
-            return (Err(trace="Schema validation failed")
+            return (Err(cause="Schema validation failed")
                 .with_error("Data schema mismatch", code="SCHEMA_ERROR")
                 .with_info(f"Transaction {transaction_id} rolled back"))
         
@@ -500,7 +500,7 @@ def save_to_database(data: dict) -> Result[int, Exception]:
         if transaction_id:
             rollback_transaction(transaction_id)
         
-        return (Err(trace=e)
+        return (Err(cause=e)
             .with_error("Database operation failed", code="DB_ERROR")
             .with_info(f"Transaction {transaction_id} rolled back if started")
             .with_metadata({"transaction_id": transaction_id}))
@@ -539,14 +539,14 @@ Represents a successful result.
 Represents a failed result.
 
 **Attributes:**
-- `trace: Optional[E]` - The error/exception that caused failure
+- `cause: Optional[E]` - The error/exception that caused failure
 - `messages: Tuple[MessageTrace[M], ...]` - Error, warning, and info messages
 - `metadata: Optional[Mapping[str, Any]]` - Additional context
 
 **Methods:**
 - `is_ok() -> bool` - Returns `False`
 - `is_err() -> bool` - Returns `True`
-- `has_trace() -> bool` - Check if trace is not None
+- `has_cause() -> bool` - Check if cause is not None
 - `has_metadata() -> bool` - Check if metadata exists
 - `has_errors() -> bool` - Check for error messages
 - `has_info() -> bool` - Check for info messages

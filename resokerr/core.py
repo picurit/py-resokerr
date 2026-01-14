@@ -277,7 +277,7 @@ class Err(Generic[E, M],
     """Represents an error result.
     
     Err instances represent failed operations and can contain:
-    - A trace of type E (optional): the error/exception that caused the failure
+    - A cause of type E (optional): the error/exception that caused the failure
     - ERROR messages: details about what went wrong
     - WARNING messages: non-critical issues encountered during the operation
     - INFO messages: diagnostic breadcrumbs leading to the error
@@ -286,7 +286,7 @@ class Err(Generic[E, M],
     Err instances can contain multiple message types to provide rich
     diagnostic information for debugging and error reporting.
     """
-    trace: Optional[E]
+    cause: Optional[E]
     messages: Tuple[MessageTrace[M], ...] = field(default_factory=tuple)
     metadata: Optional[Mapping[str, Any]] = None
     
@@ -300,9 +300,9 @@ class Err(Generic[E, M],
             # Create a copy to prevent external modifications
             object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
     
-    def has_trace(self) -> bool:
-        """Check if trace is present."""
-        return self.trace is not None
+    def has_cause(self) -> bool:
+        """Check if cause is present."""
+        return self.cause is not None
     
     def with_error(self, message: M, code: Optional[str] = None,
                    details: Optional[Dict[str, Any]] = None,
@@ -310,7 +310,7 @@ class Err(Generic[E, M],
         """Add an error message and return a new Err instance."""
         new_message = MessageTrace[M].error(message, code, details, stack_trace)
         return Err(
-            trace=self.trace,
+            cause=self.cause,
             messages=self.messages + (new_message,),
             metadata=self.metadata
         )
@@ -321,7 +321,7 @@ class Err(Generic[E, M],
         """Add an info message and return a new Err instance."""
         new_message = MessageTrace[M].info(message, code, details, stack_trace)
         return Err(
-            trace=self.trace,
+            cause=self.cause,
             messages=self.messages + (new_message,),
             metadata=self.metadata
         )
@@ -332,7 +332,7 @@ class Err(Generic[E, M],
         """Add a warning message and return a new Err instance."""
         new_message = MessageTrace[M].warning(message, code, details, stack_trace)
         return Err(
-            trace=self.trace,
+            cause=self.cause,
             messages=self.messages + (new_message,),
             metadata=self.metadata
         )
@@ -340,7 +340,7 @@ class Err(Generic[E, M],
     def with_metadata(self, metadata: Mapping[str, Any]) -> Self:
         """Return a new Err instance with replaced metadata."""
         return Err(
-            trace=self.trace,
+            cause=self.cause,
             messages=self.messages,
             metadata=metadata
         )

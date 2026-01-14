@@ -14,17 +14,17 @@ class TestEdgeCases:
         assert not ok.has_value()
         assert ok.is_ok()
 
-    def test_err_with_none_trace_is_valid(self):
-        """Test that Err can have None as trace."""
-        err = Err(trace=None)
-        assert err.trace is None
-        assert not err.has_trace()
+    def test_err_with_none_cause_is_valid(self):
+        """Test that Err can have None as cause."""
+        err = Err(cause=None)
+        assert err.cause is None
+        assert not err.has_cause()
         assert err.is_err()
 
     def test_empty_messages_tuple(self):
         """Test handling of empty message tuples."""
         ok = Ok(value=42, messages=())
-        err = Err(trace="error", messages=())
+        err = Err(cause="error", messages=())
         
         assert ok.messages == ()
         assert err.messages == ()
@@ -53,7 +53,7 @@ class TestEdgeCases:
 
     def test_err_preserves_message_order(self):
         """Test that messages maintain order in Err."""
-        err = (Err(trace="error")
+        err = (Err(cause="error")
                .with_info("First")
                .with_error("Second")
                .with_warning("Third"))
@@ -99,7 +99,7 @@ class TestEdgeCases:
         """Test using Result type in function signatures."""
         def divide(a: float, b: float) -> Result[float, str]:
             if b == 0:
-                return Err(trace="Division by zero")
+                return Err(cause="Division by zero")
             return Ok(value=a / b)
         
         success = divide(10, 2)
@@ -108,7 +108,7 @@ class TestEdgeCases:
         assert success.is_ok()
         assert success.value == 5.0
         assert failure.is_err()
-        assert failure.trace == "Division by zero"
+        assert failure.cause == "Division by zero"
 
     def test_large_number_of_messages(self):
         """Test handling a large number of messages."""
@@ -133,7 +133,7 @@ class TestEdgeCases:
     def test_message_with_special_characters(self):
         """Test messages with special characters."""
         special = "Error: ñ, é, ü, 中文, 日本語, emoji 🚀"
-        err = Err(trace="error").with_error(special)
+        err = Err(cause="error").with_error(special)
         assert err.messages[0].message == special
 
     def test_metadata_with_callable_values(self):
@@ -150,13 +150,13 @@ class TestEdgeCases:
     def test_empty_string_values(self):
         """Test handling of empty strings."""
         ok = Ok(value="")
-        err = Err(trace="")
+        err = Err(cause="")
         msg = MessageTrace.info("")
         
         assert ok.value == ""
         assert ok.has_value()
-        assert err.trace == ""
-        assert err.has_trace()
+        assert err.cause == ""
+        assert err.has_cause()
         assert msg.message == ""
 
     def test_boolean_values(self):
@@ -192,7 +192,7 @@ class TestConcurrentUsage:
         
         ok1 = Ok(value=1, messages=shared_messages)
         ok2 = Ok(value=2, messages=shared_messages)
-        err1 = Err(trace="error1", messages=shared_messages)
+        err1 = Err(cause="error1", messages=shared_messages)
         
         # All should have the same messages (immutable)
         assert ok1.messages == ok2.messages
@@ -223,7 +223,7 @@ class TestRealWorldScenarios:
             result = Ok(value=data)
             
             if not data.get("email"):
-                return Err(trace="Email is required")
+                return Err(cause="Email is required")
             
             if not data.get("name"):
                 result = result.with_warning("Name is missing")
@@ -248,7 +248,7 @@ class TestRealWorldScenarios:
         # Missing required field
         invalid = validate_user({"name": "John"})
         assert invalid.is_err()
-        assert "Email" in invalid.trace
+        assert "Email" in invalid.cause
 
     def test_pipeline_scenario(self):
         """Test a data processing pipeline scenario."""
@@ -256,11 +256,11 @@ class TestRealWorldScenarios:
             try:
                 return Ok(value=int(s))
             except ValueError:
-                return Err(trace=f"Cannot parse '{s}' as integer")
+                return Err(cause=f"Cannot parse '{s}' as integer")
         
         def validate_positive(n: int) -> Result[int, str]:
             if n <= 0:
-                return Err(trace="Number must be positive")
+                return Err(cause="Number must be positive")
             return Ok(value=n)
         
         def process(s: str) -> Result[int, str]:
@@ -278,12 +278,12 @@ class TestRealWorldScenarios:
         # Parse failure
         parse_fail = process("abc")
         assert parse_fail.is_err()
-        assert "Cannot parse" in parse_fail.trace
+        assert "Cannot parse" in parse_fail.cause
         
         # Validation failure
         validate_fail = process("-5")
         assert validate_fail.is_err()
-        assert "positive" in validate_fail.trace
+        assert "positive" in validate_fail.cause
 
     def test_accumulating_diagnostics(self):
         """Test accumulating diagnostic information."""
