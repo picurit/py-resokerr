@@ -9,6 +9,7 @@ from typing import (
     Generic,
     Mapping,
     Optional,
+    overload,
     Protocol,
     Self,
     TypeAlias,
@@ -105,6 +106,16 @@ class HasMetadata(Protocol):
     @property
     def metadata(self) -> Optional[Mapping[str, Any]]: ...
 
+class HasValue(Protocol[V]):
+    """Protocol for objects that have a value attribute."""
+    @property
+    def value(self) -> Optional[V]: ...
+
+class HasCause(Protocol[E]):
+    """Protocol for objects that have a cause attribute."""
+    @property
+    def cause(self) -> Optional[E]: ...
+
 # Mixins
 class BaseMixinMessageCollector(Generic[M]):
     """Base class for handling messages.
@@ -173,12 +184,74 @@ class StatusMixin:
         """Check if this is an error result."""
         return isinstance(self, Err)
 
+class UnwrapValueMixin(Generic[V]):
+    """Mixin for unwrapping values from Ok instances.
+    
+    Provides methods to extract the contained value with various
+    fallback strategies when the value is None.
+    """
+    
+    @overload
+    def unwrap(self: HasValue[V]) -> Optional[V]: ...
+    
+    @overload
+    def unwrap(self: HasValue[V], default: V) -> V: ...
+    
+    def unwrap(self: HasValue[V], default: Optional[V] = None) -> Optional[V]:
+        """Unwrap the contained value.
+        
+        Returns the contained value if present, otherwise returns the
+        provided default (or None if no default is provided).
+        
+        Args:
+            default: Optional default value to return if value is None.
+                     Must be of the same type as the value.
+        
+        Returns:
+            The contained value, the default, or None.
+        """
+        if self.value is not None:
+            return self.value
+        return default
+
+class UnwrapCauseMixin(Generic[E]):
+    """Mixin for unwrapping causes from Err instances.
+    
+    Provides methods to extract the contained cause with various
+    fallback strategies when the cause is None.
+    """
+    
+    @overload
+    def unwrap(self: HasCause[E]) -> Optional[E]: ...
+    
+    @overload
+    def unwrap(self: HasCause[E], default: E) -> E: ...
+    
+    def unwrap(self: HasCause[E], default: Optional[E] = None) -> Optional[E]:
+        """Unwrap the contained cause.
+        
+        Returns the contained cause if present, otherwise returns the
+        provided default (or None if no default is provided).
+        
+        Args:
+            default: Optional default value to return if cause is None.
+                     Must be of the same type as the cause.
+        
+        Returns:
+            The contained cause, the default, or None.
+        """
+        if self.cause is not None:
+            return self.cause
+        return default
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class Ok(Generic[V, M],
          MetadataMixin,
          InfoCollectorMixin[M],
          WarningCollectorMixin[M],
+         UnwrapValueMixin[V],
          StatusMixin,):
     """Represents a successful result.
     
@@ -273,6 +346,7 @@ class Err(Generic[E, M],
           ErrorCollectorMixin[M],
           InfoCollectorMixin[M],
           WarningCollectorMixin[M],
+          UnwrapCauseMixin[E],
           StatusMixin,):
     """Represents an error result.
     
