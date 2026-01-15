@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/Resokerr-Logo.png" alt="Resokerr Logo" width="200">
+  <img src="https://raw.githubusercontent.com/picurit/py-resokerr/refs/heads/main/docs/images/Resokerr-Logo.png" alt="Resokerr" width="200">
 </p>
 
 # Resokerr
