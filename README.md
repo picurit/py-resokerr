@@ -350,6 +350,138 @@ if result.has_metadata():
     print(f"Processing time: {result.metadata['processing_time_ms']}ms")
 ```
 
+### Unwrapping Values and Causes
+
+Both `Ok` and `Err` provide an `unwrap()` method to safely extract their contained value or cause with optional defaults:
+
+```python
+from resokerr import Ok, Err
+
+# Basic unwrap - returns the value or None
+ok = Ok(value=42)
+value = ok.unwrap()  # Returns 42
+
+# Unwrap with default - useful when value might be None
+ok_empty = Ok(value=None)
+value = ok_empty.unwrap(default=0)  # Returns 0
+
+# Same pattern works for Err and its cause
+err = Err(cause="Connection failed")
+cause = err.unwrap()  # Returns "Connection failed"
+
+err_empty = Err(cause=None)
+cause = err_empty.unwrap(default="Unknown error")  # Returns "Unknown error"
+```
+
+**Important**: The `unwrap()` method is type-safe:
+- On `Ok[V, M]`: returns `Optional[V]` or `V` when a default is provided
+- On `Err[E, M]`: returns `Optional[E]` or `E` when a default is provided
+
+```python
+# Type-safe unwrapping
+def process_result(result: Result[int, str]) -> int:
+    if result.is_ok():
+        # unwrap() on Ok returns the value type
+        return result.unwrap(default=0)
+    else:
+        # unwrap() on Err returns the cause type
+        error_msg = result.unwrap(default="Unknown")
+        print(f"Error: {error_msg}")
+        return -1
+```
+
+### Transforming with Map
+
+The `map()` method allows you to transform the contained value (for `Ok`) or cause (for `Err`) while preserving messages and metadata:
+
+```python
+from resokerr import Ok, Err
+
+# Transform the value inside Ok
+ok = Ok(value=5)
+doubled = ok.map(lambda x: x * 2)
+print(doubled.value)  # 10
+
+# Chain multiple transformations
+result = (Ok(value="hello")
+    .with_info("Original string")
+    .map(str.upper)
+    .map(lambda s: s + "!")
+)
+print(result.value)  # "HELLO!"
+print(result.info_messages[0].message)  # "Original string" - preserved!
+
+# Transform causes in Err
+err = Err(cause=ValueError("invalid input"))
+string_err = err.map(lambda e: str(e))
+print(string_err.cause)  # "invalid input"
+```
+
+**Key behaviors of `map()`:**
+
+1. **Preserves immutability**: Returns a new instance, never modifies the original
+2. **Preserves messages**: All info, warning, and error messages are carried over
+3. **Preserves metadata**: Metadata is preserved unchanged
+4. **Handles None safely**: If value/cause is `None`, returns a new instance with `None` (function is not called)
+
+```python
+# Safe handling of None values
+ok_none = Ok(value=None)
+mapped = ok_none.map(lambda x: x * 2)  # Function is NOT called
+print(mapped.value)  # None
+
+# Practical example: parsing and transforming data
+def parse_user_age(age_str: str) -> Result[int, str]:
+    try:
+        age = int(age_str)
+        return Ok(value=age).with_info(f"Parsed age: {age}")
+    except ValueError:
+        return Err(cause=f"Invalid age format: {age_str}")
+
+# Transform successful result to calculate birth year
+result = parse_user_age("30")
+if result.is_ok():
+    birth_year_result = result.map(lambda age: 2026 - age)
+    print(f"Birth year: {birth_year_result.value}")  # Birth year: 1996
+    print(f"Messages preserved: {len(birth_year_result.info_messages)}")  # 1
+```
+
+### Combining Unwrap and Map
+
+These methods work well together for concise data processing:
+
+```python
+from resokerr import Ok, Err, Result
+
+def fetch_temperature(city: str) -> Result[float, str]:
+    temperatures = {"madrid": 25.5, "london": 15.0, "tokyo": 22.3}
+    if city.lower() in temperatures:
+        return Ok(value=temperatures[city.lower()])
+    return Err(cause=f"Unknown city: {city}")
+
+def celsius_to_fahrenheit(celsius: float) -> float:
+    return (celsius * 9/5) + 32
+
+# Get temperature in Fahrenheit with a default
+result = fetch_temperature("Madrid")
+fahrenheit = (
+    result
+    .map(celsius_to_fahrenheit)
+    .unwrap(default=32.0)  # Default to freezing if city not found
+)
+print(f"Temperature: {fahrenheit}°F")  # Temperature: 77.9°F
+
+# Chain operations with error handling
+def get_formatted_temp(city: str) -> str:
+    result = fetch_temperature(city)
+    if result.is_ok():
+        return result.map(lambda c: f"{c}°C / {celsius_to_fahrenheit(c):.1f}°F").unwrap()
+    return f"Error: {result.unwrap()}"
+
+print(get_formatted_temp("Tokyo"))   # 22.3°C / 72.1°F
+print(get_formatted_temp("Paris"))   # Error: Unknown city: Paris
+```
+
 ## Best Practices
 
 ### ✅ DO
@@ -529,6 +661,8 @@ Represents a successful result.
 - `with_info(message, code, details, stack_trace) -> Ok` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Ok` - Add warning message
 - `with_metadata(metadata) -> Ok` - Replace metadata
+- `unwrap(default=None) -> Optional[V]` - Extract the contained value, returning `default` if value is `None`
+- `map(f: Callable[[V], T]) -> Ok[T, M]` - Apply transformation function to the value, preserving messages and metadata
 
 **Properties:**
 - `info_messages` - Tuple of info messages
@@ -555,6 +689,8 @@ Represents a failed result.
 - `with_info(message, code, details, stack_trace) -> Err` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Err` - Add warning message
 - `with_metadata(metadata) -> Err` - Replace metadata
+- `unwrap(default=None) -> Optional[E]` - Extract the contained cause, returning `default` if cause is `None`
+- `map(f: Callable[[E], T]) -> Err[T, M]` - Apply transformation function to the cause, preserving messages and metadata
 
 **Properties:**
 - `error_messages` - Tuple of error messages
