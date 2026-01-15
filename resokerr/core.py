@@ -4,6 +4,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import (
     Any,
+    Callable,
     Dict,
     final,
     Generic,
@@ -18,9 +19,13 @@ from typing import (
     Union,
 )
 
+# Class generics
 V = TypeVar('V')    # Value type
 E = TypeVar('E')    # Error type
 M = TypeVar('M')    # Message type
+
+# Methods generics
+T = TypeVar('T')    # Transformation result type (used in map methods)
 
 class TraceSeverityLevel(Enum):
     INFO = "info"
@@ -115,6 +120,24 @@ class HasCause(Protocol[E]):
     """Protocol for objects that have a cause attribute."""
     @property
     def cause(self) -> Optional[E]: ...
+
+class HasMappableValue(Protocol[V, M]):
+    """Protocol for Ok-like objects that support value mapping."""
+    @property
+    def value(self) -> Optional[V]: ...
+    @property
+    def messages(self) -> Tuple[MessageTrace[M], ...]: ...
+    @property
+    def metadata(self) -> Optional[Mapping[str, Any]]: ...
+
+class HasMappableCause(Protocol[E, M]):
+    """Protocol for Err-like objects that support cause mapping."""
+    @property
+    def cause(self) -> Optional[E]: ...
+    @property
+    def messages(self) -> Tuple[MessageTrace[M], ...]: ...
+    @property
+    def metadata(self) -> Optional[Mapping[str, Any]]: ...
 
 # Mixins
 class BaseMixinMessageCollector(Generic[M]):
@@ -244,6 +267,91 @@ class UnwrapCauseMixin(Generic[E]):
             return self.cause
         return default
 
+class MapValueMixin(Generic[V, M]):
+    """Mixin for mapping/transforming values in Ok instances.
+    
+    Provides the `map` method to apply a transformation function to the
+    contained value, returning a new Ok instance with the transformed value.
+    Messages and metadata are preserved unchanged.
+    """
+    
+    def map(self: HasMappableValue[V, M], f: Callable[[V], T]) -> Ok[T, M]:
+        """Apply a transformation function to the contained value.
+        
+        If the value is present (not None), applies the function `f` to it
+        and returns a new Ok instance with the transformed value.
+        If the value is None, returns a new Ok instance with None value.
+        
+        Messages and metadata are preserved in the new instance.
+        
+        Args:
+            f: A callable that takes a value of type V and returns type T.
+               Only called if value is not None.
+        
+        Returns:
+            A new Ok instance with the transformed value (or None).
+        
+        Example:
+            >>> ok = Ok(value=5)
+            >>> doubled = ok.map(lambda x: x * 2)
+            >>> doubled.value
+            10
+        """
+        if self.value is not None:
+            return Ok(
+                value=f(self.value),
+                messages=self.messages,
+                metadata=self.metadata
+            )
+        return Ok(
+            value=None,
+            messages=self.messages,
+            metadata=self.metadata
+        )
+
+
+class MapCauseMixin(Generic[E, M]):
+    """Mixin for mapping/transforming causes in Err instances.
+    
+    Provides the `map` method to apply a transformation function to the
+    contained cause, returning a new Err instance with the transformed cause.
+    Messages and metadata are preserved unchanged.
+    """
+    
+    def map(self: HasMappableCause[E, M], f: Callable[[E], T]) -> Err[T, M]:
+        """Apply a transformation function to the contained cause.
+        
+        If the cause is present (not None), applies the function `f` to it
+        and returns a new Err instance with the transformed cause.
+        If the cause is None, returns a new Err instance with None cause.
+        
+        Messages and metadata are preserved in the new instance.
+        
+        Args:
+            f: A callable that takes a cause of type E and returns type T.
+               Only called if cause is not None.
+        
+        Returns:
+            A new Err instance with the transformed cause (or None).
+        
+        Example:
+            >>> err = Err(cause=ValueError("bad"))
+            >>> mapped = err.map(lambda e: str(e))
+            >>> mapped.cause
+            'bad'
+        """
+        if self.cause is not None:
+            return Err(
+                cause=f(self.cause),
+                messages=self.messages,
+                metadata=self.metadata
+            )
+        return Err(
+            cause=None,
+            messages=self.messages,
+            metadata=self.metadata
+        )
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -252,6 +360,7 @@ class Ok(Generic[V, M],
          InfoCollectorMixin[M],
          WarningCollectorMixin[M],
          UnwrapValueMixin[V],
+         MapValueMixin[V, M],
          StatusMixin,):
     """Represents a successful result.
     
@@ -347,6 +456,7 @@ class Err(Generic[E, M],
           InfoCollectorMixin[M],
           WarningCollectorMixin[M],
           UnwrapCauseMixin[E],
+          MapCauseMixin[E, M],
           StatusMixin,):
     """Represents an error result.
     
