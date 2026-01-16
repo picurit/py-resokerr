@@ -482,6 +482,82 @@ print(get_formatted_temp("Tokyo"))   # 22.3°C / 72.1°F
 print(get_formatted_temp("Paris"))   # Error: Unknown city: Paris
 ```
 
+### Serializing Messages
+
+`MessageTrace` instances are immutable and use internal types like `MappingProxyType` and `Enum`. To serialize them for JSON responses, logging, or APIs, use the `to_dict()` method:
+
+```python
+from resokerr import Ok, Err
+
+# Create a result with messages
+result = (Ok(value="success")
+    .with_info("Step 1 completed", code="STEP_1")
+    .with_warning("Minor issue detected", details={"field": "optional"})
+)
+
+# Serialize all messages to dictionaries
+serialized_messages = [msg.to_dict() for msg in result.messages]
+print(serialized_messages)
+# [
+#     {'message': 'Step 1 completed', 'severity': 'info', 'code': 'STEP_1'},
+#     {'message': 'Minor issue detected', 'severity': 'warning', 'details': {'field': 'optional'}}
+# ]
+
+# Use in API responses
+import json
+response_data = {
+    "success": result.is_ok(),
+    "value": result.value,
+    "messages": [msg.to_dict() for msg in result.messages]
+}
+json_response = json.dumps(response_data)
+```
+
+**How serialization works:**
+
+- **Primitives** (`str`, `int`, `float`, `bool`, `None`): Returned as-is
+- **Objects with `to_dict()` method**: The method is called to serialize them
+- **Other objects**: Converted to string using `str()`
+
+```python
+from resokerr import MessageTrace
+
+# Custom serializable message type
+class ValidationError:
+    def __init__(self, field: str, reason: str):
+        self.field = field
+        self.reason = reason
+    
+    def to_dict(self):
+        return {"field": self.field, "reason": self.reason}
+
+# Use custom message type
+error = ValidationError("email", "Invalid format")
+msg = MessageTrace.error(error, code="VALIDATION_FAILED")
+print(msg.to_dict())
+# {'message': {'field': 'email', 'reason': 'Invalid format'}, 'severity': 'error', 'code': 'VALIDATION_FAILED'}
+```
+
+**Checking if an object is serializable:**
+
+Use `MessageTrace.is_serializable()` to check if an object has a `to_dict()` method:
+
+```python
+from resokerr import MessageTrace
+
+class SerializableData:
+    def to_dict(self):
+        return {"data": "value"}
+
+class PlainData:
+    pass
+
+print(MessageTrace.is_serializable(SerializableData()))  # True
+print(MessageTrace.is_serializable(PlainData()))         # False
+print(MessageTrace.is_serializable("string"))            # False
+print(MessageTrace.is_serializable(MessageTrace.info("test")))  # True (MessageTrace itself is serializable)
+```
+
 ## Best Practices
 
 ### ✅ DO
@@ -712,6 +788,12 @@ Immutable message with severity tracking.
 - `MessageTrace.info(message, code, details, stack_trace)` - Create INFO message
 - `MessageTrace.warning(message, code, details, stack_trace)` - Create WARNING message
 - `MessageTrace.error(message, code, details, stack_trace)` - Create ERROR message
+
+**Static Methods:**
+- `MessageTrace.is_serializable(obj) -> bool` - Check if an object has a `to_dict()` method for serialization
+
+**Instance Methods:**
+- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary. Returns a dict with `message`, `severity`, and optionally `code`, `details`, `stack_trace` (only included if not None)
 
 #### Type Aliases
 
