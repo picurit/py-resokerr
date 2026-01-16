@@ -161,3 +161,238 @@ class TestMessageTraceWithGenericTypes:
         msg = MessageTrace(message=custom_err, severity=TraceSeverityLevel.ERROR)
         assert msg.message.code == "E001"
         assert msg.message.description == "Something went wrong"
+
+class TestMessageTraceToDict:
+    """Test MessageTrace.to_dict() serialization method."""
+
+    def test_to_dict_with_string_message(self):
+        """Test to_dict with a simple string message."""
+        msg = MessageTrace.info("Simple message")
+        result = msg.to_dict()
+        
+        assert result["message"] == "Simple message"
+        assert result["severity"] == "info"
+        assert "code" not in result
+        assert "details" not in result
+        assert "stack_trace" not in result
+
+    def test_to_dict_with_all_fields(self):
+        """Test to_dict includes all fields when present."""
+        msg = MessageTrace(
+            message="Complete message",
+            severity=TraceSeverityLevel.ERROR,
+            code="ERR_001",
+            details={"field": "email", "reason": "invalid"},
+            stack_trace="File: test.py\nLine: 42"
+        )
+        result = msg.to_dict()
+        
+        assert result["message"] == "Complete message"
+        assert result["severity"] == "error"
+        assert result["code"] == "ERR_001"
+        assert result["details"] == {"field": "email", "reason": "invalid"}
+        assert result["stack_trace"] == "File: test.py\nLine: 42"
+
+    def test_to_dict_with_numeric_message(self):
+        """Test to_dict with numeric message types."""
+        int_msg = MessageTrace.info(42)
+        float_msg = MessageTrace.warning(3.14)
+        
+        assert int_msg.to_dict()["message"] == 42
+        assert float_msg.to_dict()["message"] == 3.14
+
+    def test_to_dict_with_bool_message(self):
+        """Test to_dict with boolean message."""
+        msg = MessageTrace.info(True)
+        assert msg.to_dict()["message"] is True
+
+    def test_to_dict_with_none_message(self):
+        """Test to_dict with None message."""
+        msg = MessageTrace(message=None, severity=TraceSeverityLevel.INFO)
+        assert msg.to_dict()["message"] is None
+
+    def test_to_dict_with_object_having_to_dict_method(self):
+        """Test to_dict with custom object implementing to_dict()."""
+        class SerializableError:
+            def __init__(self, code: str, detail: str):
+                self.code = code
+                self.detail = detail
+            
+            def to_dict(self) -> Dict[str, Any]:
+                return {"code": self.code, "detail": self.detail}
+        
+        custom_obj = SerializableError("E001", "Something went wrong")
+        msg = MessageTrace.error(custom_obj)
+        result = msg.to_dict()
+        
+        assert result["message"] == {"code": "E001", "detail": "Something went wrong"}
+        assert result["severity"] == "error"
+
+    def test_to_dict_with_non_serializable_object_fallback_to_str(self):
+        """Test to_dict falls back to str() for objects without to_dict()."""
+        class NonSerializable:
+            def __init__(self, value: str):
+                self.value = value
+            
+            def __str__(self) -> str:
+                return f"NonSerializable({self.value})"
+        
+        obj = NonSerializable("test")
+        msg = MessageTrace.info(obj)
+        result = msg.to_dict()
+        
+        assert result["message"] == "NonSerializable(test)"
+
+    def test_to_dict_details_converted_from_mapping_proxy(self):
+        """Test that MappingProxyType details are converted to regular dict."""
+        from types import MappingProxyType
+        
+        details = MappingProxyType({"key": "value"})
+        msg = MessageTrace.info("Test", details=details)
+        result = msg.to_dict()
+        
+        # Should be a regular dict, not MappingProxyType
+        assert isinstance(result["details"], dict)
+        assert not isinstance(result["details"], MappingProxyType)
+        assert result["details"]["key"] == "value"
+
+    def test_to_dict_returns_new_dict_instance(self):
+        """Test that to_dict returns a new dict each time (immutability)."""
+        msg = MessageTrace.info("Test", details={"key": "value"})
+        
+        dict1 = msg.to_dict()
+        dict2 = msg.to_dict()
+        
+        assert dict1 is not dict2
+        assert dict1["details"] is not dict2["details"]
+
+    def test_to_dict_severity_enum_to_string(self):
+        """Test that severity enum is converted to its string value."""
+        info_msg = MessageTrace.info("Info")
+        warning_msg = MessageTrace.warning("Warning")
+        error_msg = MessageTrace.error("Error")
+        
+        assert info_msg.to_dict()["severity"] == "info"
+        assert warning_msg.to_dict()["severity"] == "warning"
+        assert error_msg.to_dict()["severity"] == "error"
+
+
+class TestMessageTraceSerializationInResults:
+    """Test MessageTrace serialization when used within Ok and Err results."""
+
+    def test_serialize_messages_from_ok_result(self):
+        """Test serializing messages from an Ok result."""
+        from resokerr import Ok
+        
+        result = (Ok(value="success")
+            .with_info("Step 1 completed", code="STEP_1")
+            .with_warning("Minor issue detected", details={"field": "optional"})
+        )
+        
+        serialized = [msg.to_dict() for msg in result.messages]
+        
+        assert len(serialized) == 2
+        assert serialized[0]["message"] == "Step 1 completed"
+        assert serialized[0]["severity"] == "info"
+        assert serialized[0]["code"] == "STEP_1"
+        assert serialized[1]["message"] == "Minor issue detected"
+        assert serialized[1]["severity"] == "warning"
+        assert serialized[1]["details"]["field"] == "optional"
+
+    def test_serialize_messages_from_err_result(self):
+        """Test serializing messages from an Err result."""
+        from resokerr import Err
+        
+        result = (Err(cause=ValueError("Invalid input"))
+            .with_error("Validation failed", code="VAL_001")
+            .with_info("Input received", details={"input_length": 10})
+        )
+        
+        serialized = [msg.to_dict() for msg in result.messages]
+        
+        assert len(serialized) == 2
+        assert serialized[0]["message"] == "Validation failed"
+        assert serialized[0]["severity"] == "error"
+        assert serialized[1]["message"] == "Input received"
+        assert serialized[1]["severity"] == "info"
+
+    def test_empty_messages_serialization(self):
+        """Test serializing empty messages tuple."""
+        from resokerr import Ok
+        
+        result = Ok(value=True)
+        serialized = [msg.to_dict() for msg in result.messages]
+        
+        assert serialized == []
+
+
+class TestSerializableProtocol:
+    """Test the is_serializable() static method behavior."""
+
+    def test_is_serializable_with_to_dict_method(self):
+        """Test that objects with to_dict() are detected as serializable."""
+        class ImplementsToDict:
+            def to_dict(self) -> Dict[str, Any]:
+                return {"key": "value"}
+        
+        class DoesNotImplementToDict:
+            pass
+        
+        obj_with = ImplementsToDict()
+        obj_without = DoesNotImplementToDict()
+        
+        assert MessageTrace.is_serializable(obj_with) is True
+        assert MessageTrace.is_serializable(obj_without) is False
+
+    def test_message_trace_is_serializable(self):
+        """Test that MessageTrace itself is detected as serializable."""
+        msg = MessageTrace.info("Test message")
+        assert MessageTrace.is_serializable(msg) is True
+
+    def test_nested_serializable_in_message_trace(self):
+        """Test MessageTrace with a serializable message type."""
+        class NestedData:
+            def __init__(self, value: int):
+                self.value = value
+            
+            def to_dict(self) -> Dict[str, Any]:
+                return {"nested_value": self.value}
+        
+        nested = NestedData(42)
+        assert MessageTrace.is_serializable(nested) is True
+        
+        msg = MessageTrace.info(nested)
+        result = msg.to_dict()
+        
+        assert result["message"] == {"nested_value": 42}
+
+    def test_serializable_check_precedes_str_fallback(self):
+        """Test that to_dict() is used before str() fallback."""
+        class CustomWithBoth:
+            def to_dict(self) -> Dict[str, Any]:
+                return {"from": "to_dict"}
+            
+            def __str__(self) -> str:
+                return "from __str__"
+        
+        obj = CustomWithBoth()
+        msg = MessageTrace.info(obj)
+        result = msg.to_dict()
+        
+        # Should use to_dict(), not __str__()
+        assert result["message"] == {"from": "to_dict"}
+
+    def test_primitives_not_serializable(self):
+        """Test that primitives are not detected as serializable."""
+        # Primitives don't have to_dict() method
+        assert MessageTrace.is_serializable("string") is False
+        assert MessageTrace.is_serializable(42) is False
+        assert MessageTrace.is_serializable(3.14) is False
+        assert MessageTrace.is_serializable(True) is False
+        assert MessageTrace.is_serializable(None) is False
+
+    def test_dict_not_serializable(self):
+        """Test that dict is not detected as serializable (no to_dict method)."""
+        # dict doesn't have to_dict() method
+        assert MessageTrace.is_serializable({}) is False
+        assert MessageTrace.is_serializable({"key": "value"}) is False

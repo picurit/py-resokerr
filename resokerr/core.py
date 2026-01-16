@@ -12,6 +12,7 @@ from typing import (
     Optional,
     overload,
     Protocol,
+    runtime_checkable,
     Self,
     TypeAlias,
     TypeVar,
@@ -68,7 +69,98 @@ class MessageTrace(Generic[M]):
         """Factory method for error messages."""
         return cls(message=message, severity=TraceSeverityLevel.ERROR, code=code, details=details, stack_trace=stack_trace)
 
+    def _serialize_message(self) -> Any:
+        """Serialize the generic message
+        
+        Handles different message types:
+        - Primitives (str, int, float, bool, None): returned as-is
+        - Objects implementing Serializable protocol: calls to_dict()
+        - Other types: converted to string representation
+        
+        Returns:
+            A serializable value representing the message.
+        """
+        # Primitives are already JSON-serializable
+        if self.message is None or isinstance(self.message, (str, int, float, bool)):
+            return self.message
+        # Use internal Serializable protocol check for objects with to_dict()
+        if isinstance(self.message, Serializable):
+            return self.message.to_dict()
+        # Fallback: convert to string representation
+        return str(self.message)
+
+    @staticmethod
+    def is_serializable(obj: Any) -> bool:
+        """Check if an object can be serialized via to_dict().
+        
+        This method checks whether an object implements a `to_dict()` method
+        that can be used for serialization. Useful for determining how a
+        custom message type will be handled during serialization.
+        
+        Args:
+            obj: The object to check for serialization capability.
+        
+        Returns:
+            True if the object has a to_dict() method, False otherwise.
+        
+        Example:
+            >>> class MyMessage:
+            ...     def to_dict(self):
+            ...         return {"data": "value"}
+            >>> MessageTrace.is_serializable(MyMessage())
+            True
+            >>> MessageTrace.is_serializable("plain string")
+            False
+        """
+        return isinstance(obj, Serializable)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize MessageTrace to a dictionary.
+        
+        Creates a serializable dictionary representation of the
+        MessageTrace instance. Optional fields (code, details, stack_trace)
+        are only included if they have non-None values.
+        
+        Returns:
+            A dictionary with the following structure:
+            {
+                "message": <serialized message>,
+                "severity": <severity string value>,
+                "code": <optional>,
+                "details": <optional>,
+                "stack_trace": <optional>
+            }
+        
+        Example:
+            >>> msg = MessageTrace.info("Operation completed", code="OP_001")
+            >>> msg.to_dict()
+            {'message': 'Operation completed', 'severity': 'info', 'code': 'OP_001'}
+        """
+        result: Dict[str, Any] = {
+            "message": self._serialize_message(),
+            "severity": self.severity.value,
+        }
+        
+        # Only include optional fields if they have values
+        if self.code is not None:
+            result["code"] = self.code
+        if self.details is not None:
+            result["details"] = dict(self.details)  # Convert MappingProxyType to dict
+        if self.stack_trace is not None:
+            result["stack_trace"] = self.stack_trace
+        
+        return result
+
 # Protocols
+@runtime_checkable
+class Serializable(Protocol):
+    """Protocol for objects that can be serialized to a dictionary.
+    
+    Objects implementing this protocol provide a `to_dict()` method
+    that returns a JSON-serializable dictionary representation.
+    """
+    def to_dict(self) -> Dict[str, Any]: ...
+
 class HasMessages(Protocol[M]):
     """Protocol for objects that have a messages attribute."""
     @property
