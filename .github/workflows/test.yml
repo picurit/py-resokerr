@@ -1,0 +1,177 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true  # Stop all jobs if one fails
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 📦 Install dependencies
+        run: |
+          echo "::group::Upgrading pip"
+          python -m pip install --upgrade pip
+          echo "::endgroup::"
+          
+          echo "::group::Installing test dependencies"
+          pip install pytest pytest-cov
+          echo "::endgroup::"
+          
+          echo "::group::Installing package in editable mode"
+          pip install -e .
+          echo "::endgroup::"
+          
+          echo "✅ All dependencies installed successfully"
+
+      - name: 🧪 Run tests with pytest
+        id: pytest
+        run: |
+          echo "::group::Running pytest with full verbosity"
+          python -m pytest tests/ \
+            --verbose \
+            --tb=long \
+            --showlocals \
+            --strict-markers \
+            --color=yes \
+            --durations=10 \
+            --cov=resokerr \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80 \
+            --junitxml=test-results.xml \
+            2>&1 | tee pytest-output.txt
+          
+          PYTEST_EXIT_CODE=${PIPESTATUS[0]}
+          echo "::endgroup::"
+          
+          if [ $PYTEST_EXIT_CODE -ne 0 ]; then
+            echo "❌ Tests failed with exit code $PYTEST_EXIT_CODE"
+            echo "test_failed=true" >> $GITHUB_OUTPUT
+            exit $PYTEST_EXIT_CODE
+          else
+            echo "✅ All tests passed successfully"
+            echo "test_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📊 Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-python-${{ matrix.python-version }}
+          path: |
+            test-results.xml
+            coverage.xml
+            pytest-output.txt
+          retention-days: 30
+
+      - name: 📋 Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Test Results - Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f test-results.xml ]; then
+            # Extract test counts from JUnit XML
+            TESTS=$(grep -oP 'tests="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            SKIPPED=$(grep -oP 'skipped="\K[0-9]+' test-results.xml | head -1 || echo "0")
+            TIME=$(grep -oP 'time="\K[0-9.]+' test-results.xml | head -1 || echo "0")
+            
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total Tests | $TESTS |" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | $((TESTS - FAILURES - ERRORS - SKIPPED)) |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| 💥 Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏱️ Duration | ${TIME}s |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$FAILURES" != "0" ] || [ "$ERRORS" != "0" ]; then
+              echo "### ❌ Failed Tests" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              # Extract failure details from pytest output
+              grep -A 50 "FAILED\|ERROR" pytest-output.txt | head -100 >> $GITHUB_STEP_SUMMARY || echo "See artifacts for details" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ No test results file found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📈 Coverage Report
+        if: always() && matrix.python-version == '3.11'
+        run: |
+          echo "## 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f coverage.xml ]; then
+            # Extract coverage percentage
+            COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' coverage.xml | head -1 || echo "0")
+            COVERAGE_PCT=$(echo "$COVERAGE * 100" | bc -l | xargs printf "%.1f")
+            
+            echo "**Overall Coverage: ${COVERAGE_PCT}%**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if (( $(echo "$COVERAGE_PCT < 80" | bc -l) )); then
+              echo "⚠️ Coverage is below 80% threshold" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Coverage meets the 80% threshold" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+  # Final status check - blocks merge if tests fail
+  test-status:
+    name: Tests Status
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always()
+    steps:
+      - name: 🔍 Check test results
+        run: |
+          if [ "${{ needs.test.result }}" == "success" ]; then
+            echo "## ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All test jobs completed successfully across all Python versions." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          else
+            echo "## ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more test jobs failed. Please review the logs above for details." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔧 Troubleshooting Steps" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check the failed job logs for the specific error messages" >> $GITHUB_STEP_SUMMARY
+            echo "2. Review the stack traces and local variables in the test output" >> $GITHUB_STEP_SUMMARY
+            echo "3. Download the test artifacts for full pytest output" >> $GITHUB_STEP_SUMMARY
+            echo "4. Run tests locally with: \`pytest tests/ -v --tb=long --showlocals\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
