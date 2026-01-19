@@ -22,7 +22,23 @@ test = [
     "pytest~=9.0.0",
     "pytest-cov~=7.0.0",
 ]
+dev = [
+    "commitizen~=4.0.0",
+    "build~=1.2.0",
+    "twine~=6.0.0",
+]
 
 [project.urls]
-Homepage = "https://github.com/picurit/py-resokerr"
+Repository = "https://github.com/picurit/py-resokerr"
 Issues = "https://github.com/picurit/py-resokerr/issues"
+Changelog = "https://github.com/picurit/py-resokerr/blob/main/CHANGELOG.md"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+changelog_incremental = true
+annotated_tag = true
+bump_message = "chore(release): :bookmark: Bump version to $new_version"

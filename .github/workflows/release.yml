@@ -1,0 +1,245 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: 'Publish to PyPI'
+        type: boolean
+        default: true
+        required: true
+      dry_run:
+        description: 'Dry run (simulation mode - no persistent changes)'
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    environment: release
+    
+    steps:
+      - name: 📋 Summary - Run Configuration
+        run: |
+          echo "## 🚀 Release Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Publish to PyPI | \`${{ inputs.publish_to_pypi }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry Run | \`${{ inputs.dry_run }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "⚠️ **DRY RUN MODE**: No persistent changes will be made." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **PRODUCTION MODE**: Changes will be committed and published." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install dependencies
+        run: |
+          echo "::group::Installing dependencies"
+          python -m pip install --upgrade pip
+          pip install commitizen build twine
+          echo "::endgroup::"
+          echo "✅ Dependencies installed successfully"
+
+      - name: 🔍 Get current version
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(cz version --project)
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "📌 Current version: $CURRENT_VERSION"
+
+      - name: 🔮 Determine next version (dry-run bump)
+        id: next_version
+        run: |
+          echo "::group::Analyzing commits for version bump"
+          
+          # Run commitizen bump in dry-run to determine next version
+          BUMP_OUTPUT=$(cz bump --dry-run 2>&1) || true
+          echo "$BUMP_OUTPUT"
+          
+          # Extract the new version from the output
+          NEXT_VERSION=$(echo "$BUMP_OUTPUT" | grep -oP 'tag to create: v\K[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+          
+          if [ -z "$NEXT_VERSION" ]; then
+            echo "::endgroup::"
+            echo "⚠️ No version bump needed - no conventional commits found since last release"
+            echo "needs_bump=false" >> $GITHUB_OUTPUT
+            echo "version=${{ steps.current_version.outputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "::endgroup::"
+            echo "📦 Next version will be: $NEXT_VERSION"
+            echo "needs_bump=true" >> $GITHUB_OUTPUT
+            echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🛑 Check if release is needed
+        if: steps.next_version.outputs.needs_bump != 'true'
+        run: |
+          echo "::warning::No version bump needed. Exiting workflow."
+          echo "## ℹ️ No Release Needed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No conventional commits found since the last release that would trigger a version bump." >> $GITHUB_STEP_SUMMARY
+          exit 0
+
+      - name: 📝 Generate changelog preview
+        if: steps.next_version.outputs.needs_bump == 'true'
+        run: |
+          echo "::group::Changelog Preview"
+          echo "## 📝 Changelog Preview for v${{ steps.next_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cz changelog --dry-run --unreleased-version v${{ steps.next_version.outputs.version }} 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
+
+      - name: 🔄 Configure Git
+        if: steps.next_version.outputs.needs_bump == 'true' && inputs.dry_run == false
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          echo "✅ Git configured for commits"
+
+      - name: 🚀 Bump version and update changelog
+        if: steps.next_version.outputs.needs_bump == 'true'
+        id: bump
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would bump version to ${{ steps.next_version.outputs.version }}"
+            echo "::notice::DRY RUN - Version bump not applied"
+          else
+            echo "::group::Bumping version"
+            cz bump --yes --changelog
+            echo "::endgroup::"
+            echo "✅ Version bumped to ${{ steps.next_version.outputs.version }}"
+          fi
+
+      - name: 📤 Push changes and tags
+        if: steps.next_version.outputs.needs_bump == 'true'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would push commits and tag v${{ steps.next_version.outputs.version }}"
+            echo "::notice::DRY RUN - No Git changes pushed"
+          else
+            echo "::group::Pushing to repository"
+            git push --follow-tags origin main
+            echo "::endgroup::"
+            echo "✅ Changes and tags pushed successfully"
+          fi
+
+      - name: 🏗️ Build distribution packages
+        if: steps.next_version.outputs.needs_bump == 'true'
+        run: |
+          echo "::group::Building distribution"
+          
+          # Clean previous builds
+          rm -rf dist/ build/ *.egg-info/
+          
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would build distribution packages"
+            # Still build in dry run to validate the process
+            python -m build
+            echo "📦 Built packages (for validation only):"
+            ls -la dist/
+            echo "::notice::DRY RUN - Build completed for validation"
+          else
+            python -m build
+            echo "📦 Built packages:"
+            ls -la dist/
+          fi
+          
+          echo "::endgroup::"
+          echo "✅ Distribution packages built successfully"
+
+      - name: 🔐 Check PyPI package
+        if: steps.next_version.outputs.needs_bump == 'true'
+        run: |
+          echo "::group::Validating package"
+          python -m twine check dist/*
+          echo "::endgroup::"
+          echo "✅ Package validation passed"
+
+      - name: 🚢 Publish to PyPI
+        if: steps.next_version.outputs.needs_bump == 'true' && inputs.publish_to_pypi == true
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: Would publish to PyPI"
+            echo "📦 Packages that would be uploaded:"
+            ls -la dist/
+            echo "::notice::DRY RUN - PyPI publish simulated"
+          else
+            echo "::group::Publishing to PyPI"
+            python -m twine upload dist/*
+            echo "::endgroup::"
+            echo "✅ Published to PyPI successfully"
+          fi
+
+      - name: 🏷️ Create GitHub Release
+        if: steps.next_version.outputs.needs_bump == 'true' && inputs.dry_run == false
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.next_version.outputs.version }}
+          name: Release v${{ steps.next_version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+
+      - name: 📊 Final Summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.next_version.outputs.needs_bump }}" != "true" ]; then
+            echo "## 📊 Result: No Release" >> $GITHUB_STEP_SUMMARY
+            echo "No conventional commits found that would trigger a version bump." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "## 📊 Result: Dry Run Completed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Version Bump | 🔍 Simulated (${{ steps.current_version.outputs.version }} → ${{ steps.next_version.outputs.version }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Changelog | 🔍 Preview generated |" >> $GITHUB_STEP_SUMMARY
+            echo "| Git Push | 🔍 Simulated |" >> $GITHUB_STEP_SUMMARY
+            echo "| Build | ✅ Validated |" >> $GITHUB_STEP_SUMMARY
+            echo "| PyPI Publish | 🔍 Simulated |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 📊 Result: Release Completed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Version | ✅ ${{ steps.current_version.outputs.version }} → ${{ steps.next_version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Changelog | ✅ Updated |" >> $GITHUB_STEP_SUMMARY
+            echo "| Git Push | ✅ Pushed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Build | ✅ Built |" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.publish_to_pypi }}" = "true" ]; then
+              echo "| PyPI Publish | ✅ Published |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| PyPI Publish | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "| GitHub Release | ✅ Created |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 [View on PyPI](https://pypi.org/project/resokerr/${{ steps.next_version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
+          fi
