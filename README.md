@@ -140,6 +140,91 @@ else:
     print(f"Invalid: {result.cause}")
 ```
 
+### Pattern Matching with `match`
+
+Python 3.10+ introduces structural pattern matching, which works seamlessly with `Ok` and `Err` thanks to their dataclass-based design. This provides a clean, declarative way to handle results.
+
+#### Type-Only Matching
+
+When you only need to check whether the result is `Ok` or `Err` without extracting values:
+
+```python
+from resokerr import Ok, Err, Result
+
+def process(result: Result[int, str]) -> str:
+    match result:
+        case Ok():
+            return "Operation succeeded"
+        case Err():
+            return "Operation failed"
+
+# Usage
+ok_result = Ok(value=42)
+err_result = Err(cause="Connection timeout")
+
+print(process(ok_result))   # "Operation succeeded"
+print(process(err_result))  # "Operation failed"
+```
+
+#### Capturing Values
+
+You can capture the contained value (for `Ok`) or cause (for `Err`) directly in the match pattern:
+
+```python
+from resokerr import Ok, Err, Result
+
+def handle_result(result: Result[int, str]) -> str:
+    match result:
+        case Ok(value=v):
+            return f"Success with value: {v}"
+        case Err(cause=c):
+            return f"Failed with cause: {c}"
+
+# Usage
+print(handle_result(Ok(value=100)))           # "Success with value: 100"
+print(handle_result(Err(cause="Not found")))  # "Failed with cause: Not found"
+```
+
+#### Advanced Matching with Guards
+
+Combine pattern matching with guard conditions for more complex logic:
+
+```python
+from resokerr import Ok, Err, Result
+
+def categorize_age(result: Result[int, str]) -> str:
+    match result:
+        case Ok(value=age) if age is not None and age >= 18:
+            return "adult"
+        case Ok(value=age) if age is not None and age >= 0:
+            return "minor"
+        case Ok():
+            return "unknown age"
+        case Err(cause=c):
+            return f"invalid: {c}"
+
+# Usage
+print(categorize_age(Ok(value=25)))                        # "adult"
+print(categorize_age(Ok(value=10)))                        # "minor"
+print(categorize_age(Err(cause="Age cannot be negative"))) # "invalid: Age cannot be negative"
+```
+
+#### Capturing Multiple Fields
+
+You can capture multiple attributes in a single pattern, including messages and metadata:
+
+```python
+from resokerr import Ok, Err, Result
+
+result = Ok(value=42).with_info("Step completed").with_warning("Low memory")
+
+match result:
+    case Ok(value=v, messages=msgs):
+        print(f"Value: {v}, Messages: {len(msgs)}")  # "Value: 42, Messages: 2"
+    case Err(cause=c, messages=msgs):
+        print(f"Error: {c}, Messages: {len(msgs)}")
+```
+
 ### With Message Tracing
 
 ```python
