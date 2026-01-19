@@ -1,4 +1,13 @@
 dist/
 venv/
 *.egg-info/
-*.pyc
+__pycache__/
+
+# Testing
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+test-results.xml
+pytest-output.txt
