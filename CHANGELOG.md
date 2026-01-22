@@ -1,3 +1,14 @@
+## v0.3.0 (2026-01-22)
+
+### Feat
+
+- :sparkles: Add success message handling in MessageTrace and Ok classes
+
+### Fix
+
+- :wrench: Use deploy key for release workflow to bypass branch protection
+- :pencil2: Remove unnecessary type hinting for success and info message properties
+
 ## v0.2.0 (2026-01-19)
 
 ### Feat
