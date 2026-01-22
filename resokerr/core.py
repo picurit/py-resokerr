@@ -264,7 +264,7 @@ class SuccessCollectorMixin(BaseMixinMessageCollector[M]):
     """Mixin for collecting success messages."""
     
     @property
-    def success_messages(self: HasSuccessMessages[M]) -> Tuple[MessageTrace[M], ...]:
+    def success_messages(self) -> Tuple[MessageTrace[M], ...]:
         """Get success messages."""
         return self._get_messages_by_severity(TraceSeverityLevel.SUCCESS)
     
@@ -276,7 +276,7 @@ class InfoCollectorMixin(BaseMixinMessageCollector[M]):
     """Mixin for collecting info messages."""
     
     @property
-    def info_messages(self: HasInfoMessages[M]) -> Tuple[MessageTrace[M], ...]:
+    def info_messages(self) -> Tuple[MessageTrace[M], ...]:
         """Get info messages."""
         return self._get_messages_by_severity(TraceSeverityLevel.INFO)
     
@@ -288,7 +288,7 @@ class WarningCollectorMixin(BaseMixinMessageCollector[M]):
     """Mixin for collecting warning messages."""
     
     @property
-    def warning_messages(self: HasWarningMessages[M]) -> Tuple[MessageTrace[M], ...]:
+    def warning_messages(self) -> Tuple[MessageTrace[M], ...]:
         """Get warning messages."""
         return self._get_messages_by_severity(TraceSeverityLevel.WARNING)
     
@@ -300,7 +300,7 @@ class ErrorCollectorMixin(BaseMixinMessageCollector[M]):
     """Mixin for collecting error messages."""
     
     @property
-    def error_messages(self: HasErrorMessages[M]) -> Tuple[MessageTrace[M], ...]:
+    def error_messages(self) -> Tuple[MessageTrace[M], ...]:
         """Get error messages."""
         return self._get_messages_by_severity(TraceSeverityLevel.ERROR)
     
