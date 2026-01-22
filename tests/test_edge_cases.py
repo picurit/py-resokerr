@@ -70,10 +70,10 @@ class TestEdgeCases:
             MessageTrace.error("Error 3")
         ]
         ok = Ok(value=42, messages=messages)
-        
+
         assert len(ok.messages) == 3
         assert all(msg.severity == TraceSeverityLevel.WARNING for msg in ok.messages)
-        assert all("downgraded" in msg.details for msg in ok.messages)
+        assert all("_converted_from" in msg.details for msg in ok.messages)
 
     def test_nested_metadata_structure(self):
         """Test complex nested metadata structures."""

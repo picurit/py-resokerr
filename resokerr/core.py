@@ -29,6 +29,7 @@ M = TypeVar('M')    # Message type
 T = TypeVar('T')    # Transformation result type (used in map methods)
 
 class TraceSeverityLevel(Enum):
+    SUCCESS = "success"
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -47,6 +48,13 @@ class MessageTrace(Generic[M]):
         if self.details is not None and not isinstance(self.details, MappingProxyType):
             # Create a copy to prevent external modifications
             object.__setattr__(self, 'details', MappingProxyType(dict(self.details)))
+    
+    @classmethod
+    def success(cls, message: M, code: Optional[str] = None,
+                details: Optional[Mapping[str, Any]] = None,
+                stack_trace: Optional[str] = None) -> MessageTrace[M]:
+        """Factory method for success messages."""
+        return cls(message=message, severity=TraceSeverityLevel.SUCCESS, code=code, details=details, stack_trace=stack_trace)
 
     @classmethod
     def info(cls, message: M, code: Optional[str] = None,
@@ -168,15 +176,15 @@ class HasMessages(Protocol[M]):
     
     def _get_messages_by_severity(self, severity: TraceSeverityLevel) -> Tuple[MessageTrace[M], ...]: ...
 
-class HasErrorMessages(Protocol[M]):
-    """Protocol for objects that can handle error messages."""
+class HasSuccessMessages(Protocol[M]):
+    """Protocol for objects that can handle success messages."""
     @property
     def messages(self) -> Tuple[MessageTrace[M], ...]: ...
     
     @property
-    def error_messages(self) -> Tuple[MessageTrace[M], ...]: ...
+    def success_messages(self) -> Tuple[MessageTrace[M], ...]: ...
     
-    def has_errors(self) -> bool: ...
+    def has_successes(self) -> bool: ...
 
 class HasInfoMessages(Protocol[M]):
     """Protocol for objects that can handle info messages."""
@@ -197,6 +205,16 @@ class HasWarningMessages(Protocol[M]):
     def warning_messages(self) -> Tuple[MessageTrace[M], ...]: ...
     
     def has_warnings(self) -> bool: ...
+
+class HasErrorMessages(Protocol[M]):
+    """Protocol for objects that can handle error messages."""
+    @property
+    def messages(self) -> Tuple[MessageTrace[M], ...]: ...
+    
+    @property
+    def error_messages(self) -> Tuple[MessageTrace[M], ...]: ...
+    
+    def has_errors(self) -> bool: ...
     
 class HasMetadata(Protocol):
     """Protocol for objects that have a metadata attribute."""
@@ -242,17 +260,17 @@ class BaseMixinMessageCollector(Generic[M]):
         """Get messages filtered by severity."""
         return tuple(message for message in self.messages if message.severity == severity)
 
-class ErrorCollectorMixin(BaseMixinMessageCollector[M]):
-    """Mixin for collecting error messages."""
+class SuccessCollectorMixin(BaseMixinMessageCollector[M]):
+    """Mixin for collecting success messages."""
     
     @property
-    def error_messages(self: HasErrorMessages[M]) -> Tuple[MessageTrace[M], ...]:
-        """Get error messages."""
-        return self._get_messages_by_severity(TraceSeverityLevel.ERROR)
+    def success_messages(self: HasSuccessMessages[M]) -> Tuple[MessageTrace[M], ...]:
+        """Get success messages."""
+        return self._get_messages_by_severity(TraceSeverityLevel.SUCCESS)
     
-    def has_errors(self: HasErrorMessages[M]) -> bool:
-        """Check if there are any error messages."""
-        return len(self.error_messages) > 0
+    def has_successes(self: HasSuccessMessages[M]) -> bool:
+        """Check if there are any success messages."""
+        return len(self.success_messages) > 0
 
 class InfoCollectorMixin(BaseMixinMessageCollector[M]):
     """Mixin for collecting info messages."""
@@ -277,7 +295,19 @@ class WarningCollectorMixin(BaseMixinMessageCollector[M]):
     def has_warnings(self: HasWarningMessages[M]) -> bool:
         """Check if there are any warning messages."""
         return len(self.warning_messages) > 0
+
+class ErrorCollectorMixin(BaseMixinMessageCollector[M]):
+    """Mixin for collecting error messages."""
     
+    @property
+    def error_messages(self: HasErrorMessages[M]) -> Tuple[MessageTrace[M], ...]:
+        """Get error messages."""
+        return self._get_messages_by_severity(TraceSeverityLevel.ERROR)
+    
+    def has_errors(self: HasErrorMessages[M]) -> bool:
+        """Check if there are any error messages."""
+        return len(self.error_messages) > 0
+
 class MetadataMixin:
     """Mixin for handling metadata.
     
@@ -449,6 +479,7 @@ class MapCauseMixin(Generic[E, M]):
 @dataclass(frozen=True, slots=True)
 class Ok(Generic[V, M],
          MetadataMixin,
+         SuccessCollectorMixin[M],
          InfoCollectorMixin[M],
          WarningCollectorMixin[M],
          UnwrapValueMixin[V],
@@ -473,21 +504,26 @@ class Ok(Generic[V, M],
         # Ensure messages are immutable tuples.
         if not isinstance(self.messages, tuple):
             object.__setattr__(self, 'messages', tuple(self.messages))
+        
+        # Ensure metadata is immutable by converting to MappingProxyType.
+        if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
+            # Create a copy to prevent external modifications
+            object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
 
-        # Downgrade ERROR messages to WARNING (Ok cannot contain ERROR severity).
+        # Convert ERROR messages to WARNING (Ok cannot contain ERROR severity).
         # This preserves the message content while maintaining semantic correctness.
         converted_messages: list[MessageTrace[M]] = []
         for msg in self.messages:
             if msg.severity == TraceSeverityLevel.ERROR:
-                # Merge existing details with downgrade info
+                # Merge existing details with converted info
                 original_details = dict(msg.details) if msg.details else {}
-                downgrade_info = {
-                    "downgraded": {
+                converted_info = {
+                    "_converted_from": {
                         "from": TraceSeverityLevel.ERROR.value,
                         "reason": "Ok instances cannot contain ERROR messages"
                     }
                 }
-                merged_details = {**original_details, **downgrade_info}
+                merged_details = {**original_details, **converted_info}
 
                 converted_messages.append(MessageTrace(
                     message=msg.message,
@@ -498,17 +534,22 @@ class Ok(Generic[V, M],
                 ))
             else:
                 converted_messages.append(msg)
-
         object.__setattr__(self, 'messages', tuple(converted_messages))
-
-        # Ensure metadata is immutable by converting to MappingProxyType.
-        if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
-            # Create a copy to prevent external modifications
-            object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
 
     def has_value(self) -> bool:
         """Check if value is present."""
         return self.value is not None
+
+    def with_success(self, message: M, code: Optional[str] = None,
+                     details: Optional[Dict[str, Any]] = None,
+                     stack_trace: Optional[str] = None) -> Self:
+        """Add a success message and return a new Ok instance."""
+        new_message = MessageTrace[M].success(message, code, details, stack_trace)
+        return Ok(
+            value=self.value,
+            messages=self.messages + (new_message,),
+            metadata=self.metadata
+        )
     
     def with_info(self, message: M, code: Optional[str] = None,
                   details: Optional[Dict[str, Any]] = None,
@@ -575,6 +616,32 @@ class Err(Generic[E, M],
         if self.metadata is not None and not isinstance(self.metadata, MappingProxyType):
             # Create a copy to prevent external modifications
             object.__setattr__(self, 'metadata', MappingProxyType(dict(self.metadata)))
+        
+        # Convert SUCCESS messages to INFO (Err cannot contain SUCCESS severity).
+        # This preserves the message content while maintaining semantic correctness.
+        converted_messages: list[MessageTrace[M]] = []
+        for msg in self.messages:
+            if msg.severity == TraceSeverityLevel.SUCCESS:
+                # Merge existing details with converted info
+                original_details = dict(msg.details) if msg.details else {}
+                converted_info = {
+                    "_converted_from": {
+                        "from": TraceSeverityLevel.SUCCESS.value,
+                        "reason": "Err instances cannot contain SUCCESS messages"
+                    }
+                }
+                merged_details = {**original_details, **converted_info}
+
+                converted_messages.append(MessageTrace(
+                    message=msg.message,
+                    severity=TraceSeverityLevel.INFO,
+                    code=msg.code,
+                    details=merged_details,
+                    stack_trace=msg.stack_trace
+                ))
+            else:
+                converted_messages.append(msg)
+        object.__setattr__(self, 'messages', tuple(converted_messages))
     
     def has_cause(self) -> bool:
         """Check if cause is present."""

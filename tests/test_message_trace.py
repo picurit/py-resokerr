@@ -47,6 +47,28 @@ class TestMessageTraceCreation:
         assert msg.details == details
         assert msg.stack_trace == "line 1\nline 2"
 
+    def test_success_factory_method(self):
+        """Test MessageTrace.success() factory method."""
+        msg = MessageTrace.success("Success message", code="SUCCESS_001")
+        assert msg.message == "Success message"
+        assert msg.severity == TraceSeverityLevel.SUCCESS
+        assert msg.code == "SUCCESS_001"
+
+    def test_success_factory_with_all_params(self):
+        """Test MessageTrace.success() with all parameters."""
+        details = {"operation": "create", "count": 5}
+        msg = MessageTrace.success(
+            "Created records",
+            code="SUCCESS_CREATE",
+            details=details,
+            stack_trace="create.py:42"
+        )
+        assert msg.message == "Created records"
+        assert msg.severity == TraceSeverityLevel.SUCCESS
+        assert msg.code == "SUCCESS_CREATE"
+        assert msg.details["operation"] == "create"
+        assert msg.stack_trace == "create.py:42"
+
     def test_info_factory_method(self):
         """Test MessageTrace.info() factory method."""
         msg = MessageTrace.info("Info message", code="INFO_001")
@@ -117,20 +139,24 @@ class TestMessageTraceSeverityLevels:
 
     def test_severity_level_values(self):
         """Test that severity levels have correct string values."""
+        assert TraceSeverityLevel.SUCCESS.value == "success"
         assert TraceSeverityLevel.INFO.value == "info"
         assert TraceSeverityLevel.WARNING.value == "warning"
         assert TraceSeverityLevel.ERROR.value == "error"
 
     def test_severity_level_comparison(self):
         """Test that severity levels can be compared."""
+        success_msg = MessageTrace.success("Success")
         info_msg = MessageTrace.info("Info")
         warning_msg = MessageTrace.warning("Warning")
         error_msg = MessageTrace.error("Error")
-        
+
+        assert success_msg.severity == TraceSeverityLevel.SUCCESS
         assert info_msg.severity == TraceSeverityLevel.INFO
         assert warning_msg.severity == TraceSeverityLevel.WARNING
         assert error_msg.severity == TraceSeverityLevel.ERROR
         assert info_msg.severity != warning_msg.severity
+        assert success_msg.severity != info_msg.severity
 
 
 class TestMessageTraceWithGenericTypes:
@@ -268,10 +294,12 @@ class TestMessageTraceToDict:
 
     def test_to_dict_severity_enum_to_string(self):
         """Test that severity enum is converted to its string value."""
+        success_msg = MessageTrace.success("Success")
         info_msg = MessageTrace.info("Info")
         warning_msg = MessageTrace.warning("Warning")
         error_msg = MessageTrace.error("Error")
-        
+
+        assert success_msg.to_dict()["severity"] == "success"
         assert info_msg.to_dict()["severity"] == "info"
         assert warning_msg.to_dict()["severity"] == "warning"
         assert error_msg.to_dict()["severity"] == "error"
