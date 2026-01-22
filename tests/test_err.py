@@ -87,6 +87,84 @@ class TestErrImmutability:
         assert err.metadata["key"] == "value"
 
 
+class TestErrSuccessMessageConversion:
+    """Test that SUCCESS messages are converted to INFO in Err instances."""
+
+    def test_success_message_converted_to_info(self):
+        """Test that SUCCESS severity messages are converted to INFO."""
+        success_msg = MessageTrace.success("This is a success", code="SUCCESS_001")
+        err = Err(cause="Error", messages=[success_msg])
+
+        assert len(err.messages) == 1
+        assert err.messages[0].severity == TraceSeverityLevel.INFO
+        assert err.messages[0].message == "This is a success"
+        assert err.messages[0].code == "SUCCESS_001"
+
+    def test_success_conversion_adds_details(self):
+        """Test that success conversion adds details about the conversion."""
+        success_msg = MessageTrace.success("Success message")
+        err = Err(cause="Error", messages=[success_msg])
+
+        assert err.messages[0].details is not None
+        assert "_converted_from" in err.messages[0].details
+        assert err.messages[0].details["_converted_from"]["from"] == "success"
+        assert "Err instances cannot contain SUCCESS messages" in err.messages[0].details["_converted_from"]["reason"]
+
+    def test_success_conversion_preserves_existing_details(self):
+        """Test that existing details are preserved during conversion."""
+        original_details = {"operation": "create", "id": 123}
+        success_msg = MessageTrace.success("Created successfully", details=original_details)
+        err = Err(cause="Error", messages=[success_msg])
+
+        assert err.messages[0].details["operation"] == "create"
+        assert err.messages[0].details["id"] == 123
+        assert "_converted_from" in err.messages[0].details
+
+    def test_mixed_severity_messages_with_success(self):
+        """Test Err with mixed severity messages including SUCCESS."""
+        messages = [
+            MessageTrace.info("Info message"),
+            MessageTrace.success("Success message"),
+            MessageTrace.error("Error message"),
+            MessageTrace.warning("Warning message")
+        ]
+        err = Err(cause="Error", messages=messages)
+
+        assert len(err.messages) == 4
+        # First message should remain INFO
+        assert err.messages[0].severity == TraceSeverityLevel.INFO
+        # Second message should be converted from SUCCESS to INFO
+        assert err.messages[1].severity == TraceSeverityLevel.INFO
+        assert "_converted_from" in err.messages[1].details
+        # Third message should remain ERROR
+        assert err.messages[2].severity == TraceSeverityLevel.ERROR
+        # Fourth message should remain WARNING
+        assert err.messages[3].severity == TraceSeverityLevel.WARNING
+
+    def test_multiple_success_messages_all_converted(self):
+        """Test that multiple SUCCESS messages are all converted in Err."""
+        messages = [
+            MessageTrace.success("Success 1"),
+            MessageTrace.success("Success 2"),
+            MessageTrace.success("Success 3")
+        ]
+        err = Err(cause="Error", messages=messages)
+
+        assert len(err.messages) == 3
+        assert all(msg.severity == TraceSeverityLevel.INFO for msg in err.messages)
+        assert all("_converted_from" in msg.details for msg in err.messages)
+
+    def test_err_has_no_success_messages(self):
+        """Test that Err cannot contain SUCCESS messages (they are converted)."""
+        success_msg = MessageTrace.success("Success")
+        err = Err(cause="Error", messages=[success_msg])
+
+        # Err does not have success_messages property - it's not a mixin
+        # But verify the message was converted to INFO
+        assert len(err.info_messages) == 1
+        assert err.messages[0].severity == TraceSeverityLevel.INFO
+
+
 class TestErrMessageMethods:
     """Test Err message addition methods."""
 

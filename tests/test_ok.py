@@ -86,10 +86,10 @@ class TestOkImmutability:
         assert ok.metadata["key"] == "value"
 
 
-class TestOkErrorMessageDowngrade:
-    """Test that ERROR messages are downgraded to WARNING in Ok instances."""
+class TestOkErrorMessageConversion:
+    """Test that ERROR messages are converted to WARNING in Ok instances."""
 
-    def test_error_message_downgraded_to_warning(self):
+    def test_error_message_converted_to_warning(self):
         """Test that ERROR severity messages are converted to WARNING."""
         error_msg = MessageTrace.error("This is an error", code="ERR_001")
         ok = Ok(value=42, messages=[error_msg])
@@ -99,25 +99,25 @@ class TestOkErrorMessageDowngrade:
         assert ok.messages[0].message == "This is an error"
         assert ok.messages[0].code == "ERR_001"
 
-    def test_error_downgrade_adds_details(self):
-        """Test that error downgrade adds details about the conversion."""
+    def test_error_conversion_adds_details(self):
+        """Test that error conversion adds details about the conversion."""
         error_msg = MessageTrace.error("Error message")
         ok = Ok(value=42, messages=[error_msg])
-        
-        assert ok.messages[0].details is not None
-        assert "downgraded" in ok.messages[0].details
-        assert ok.messages[0].details["downgraded"]["from"] == "error"
-        assert "Ok instances cannot contain ERROR messages" in ok.messages[0].details["downgraded"]["reason"]
 
-    def test_error_downgrade_preserves_existing_details(self):
-        """Test that existing details are preserved during downgrade."""
+        assert ok.messages[0].details is not None
+        assert "_converted_from" in ok.messages[0].details
+        assert ok.messages[0].details["_converted_from"]["from"] == "error"
+        assert "Ok instances cannot contain ERROR messages" in ok.messages[0].details["_converted_from"]["reason"]
+
+    def test_error_conversion_preserves_existing_details(self):
+        """Test that existing details are preserved during conversion."""
         original_details = {"field": "email", "constraint": "format"}
         error_msg = MessageTrace.error("Invalid email", details=original_details)
         ok = Ok(value=42, messages=[error_msg])
-        
+
         assert ok.messages[0].details["field"] == "email"
         assert ok.messages[0].details["constraint"] == "format"
-        assert "downgraded" in ok.messages[0].details
+        assert "_converted_from" in ok.messages[0].details
 
     def test_mixed_severity_messages(self):
         """Test Ok with mixed severity messages including ERROR."""
@@ -131,7 +131,7 @@ class TestOkErrorMessageDowngrade:
         assert len(ok.messages) == 3
         # First message should remain INFO
         assert ok.messages[0].severity == TraceSeverityLevel.INFO
-        # Second message should be downgraded to WARNING
+        # Second message should be converted to WARNING
         assert ok.messages[1].severity == TraceSeverityLevel.WARNING
         # Third message should remain WARNING
         assert ok.messages[2].severity == TraceSeverityLevel.WARNING
@@ -251,15 +251,128 @@ class TestOkMessageFiltering:
         assert ok2.has_warnings()
 
     def test_no_error_messages_in_ok(self):
-        """Test that Ok instances don't have error messages (they're downgraded)."""
+        """Test that Ok instances don't have error messages (they're converted)."""
         error_msg = MessageTrace.error("Error")
         ok = Ok(value=42, messages=[error_msg])
         
-        # Should be empty since errors are downgraded to warnings
+        # Should be empty since errors are converted to warnings
         # Note: Ok doesn't have error_messages property, but we can verify
         # that the message was converted to warning
         assert len(ok.warning_messages) == 1
         assert ok.messages[0].severity == TraceSeverityLevel.WARNING
+
+
+class TestOkSuccessMessages:
+    """Test Ok handling of SUCCESS severity messages."""
+
+    def test_with_success_adds_success_message(self):
+        """Test adding a success message via with_success()."""
+        ok = Ok(value=42).with_success("Operation completed")
+
+        assert len(ok.messages) == 1
+        assert ok.messages[0].severity == TraceSeverityLevel.SUCCESS
+        assert ok.messages[0].message == "Operation completed"
+
+    def test_with_success_with_code(self):
+        """Test adding a success message with a code."""
+        ok = Ok(value=42).with_success("Success", code="SUCCESS_001")
+
+        assert ok.messages[0].code == "SUCCESS_001"
+
+    def test_with_success_with_details(self):
+        """Test adding a success message with details."""
+        details = {"operation": "create", "id": 123}
+        ok = Ok(value=42).with_success("Created", details=details)
+
+        assert ok.messages[0].details["operation"] == "create"
+        assert ok.messages[0].details["id"] == 123
+
+    def test_with_success_with_stack_trace(self):
+        """Test adding a success message with stack trace."""
+        ok = Ok(value=42).with_success("Done", stack_trace="file.py:10")
+
+        assert ok.messages[0].stack_trace == "file.py:10"
+
+    def test_success_messages_property(self):
+        """Test retrieving only success messages."""
+        messages = [
+            MessageTrace.success("Success 1"),
+            MessageTrace.info("Info 1"),
+            MessageTrace.success("Success 2")
+        ]
+        ok = Ok(value=42, messages=messages)
+
+        success_msgs = ok.success_messages
+        assert len(success_msgs) == 2
+        assert success_msgs[0].message == "Success 1"
+        assert success_msgs[1].message == "Success 2"
+
+    def test_has_successes_when_present(self):
+        """Test has_successes() returns True when success messages exist."""
+        ok = Ok(value=42).with_success("Done")
+
+        assert ok.has_successes()
+
+    def test_has_successes_when_absent(self):
+        """Test has_successes() returns False when no success messages."""
+        ok = Ok(value=42).with_info("Just info")
+
+        assert not ok.has_successes()
+
+    def test_with_success_chaining(self):
+        """Test chaining multiple with_success calls."""
+        ok = (Ok(value=42)
+              .with_success("Step 1 done")
+              .with_success("Step 2 done")
+              .with_success("Step 3 done"))
+
+        assert len(ok.success_messages) == 3
+        assert ok.messages[0].message == "Step 1 done"
+        assert ok.messages[2].message == "Step 3 done"
+
+    def test_success_with_other_message_types(self):
+        """Test success messages alongside info and warning messages."""
+        ok = (Ok(value=42)
+              .with_success("Operation started")
+              .with_info("Processing...")
+              .with_warning("Minor issue detected")
+              .with_success("Operation completed"))
+
+        assert len(ok.messages) == 4
+        assert len(ok.success_messages) == 2
+        assert len(ok.info_messages) == 1
+        assert len(ok.warning_messages) == 1
+
+    def test_success_message_not_converted(self):
+        """Test that SUCCESS messages are NOT converted in Ok (unlike ERROR)."""
+        success_msg = MessageTrace.success("Success message")
+        ok = Ok(value=42, messages=[success_msg])
+
+        assert ok.messages[0].severity == TraceSeverityLevel.SUCCESS
+        assert ok.messages[0].details is None  # No _converted_from added
+
+    def test_with_success_returns_new_instance(self):
+        """Test that with_success returns a new immutable instance."""
+        ok1 = Ok(value=42)
+        ok2 = ok1.with_success("Done")
+
+        assert ok1 is not ok2
+        assert len(ok1.messages) == 0
+        assert len(ok2.messages) == 1
+
+    def test_with_success_preserves_value(self):
+        """Test that with_success preserves the original value."""
+        ok1 = Ok(value="original")
+        ok2 = ok1.with_success("Done")
+
+        assert ok2.value == "original"
+
+    def test_with_success_preserves_metadata(self):
+        """Test that with_success preserves metadata."""
+        ok1 = Ok(value=42, metadata={"key": "value"})
+        ok2 = ok1.with_success("Done")
+
+        assert ok2.metadata["key"] == "value"
 
 
 class TestOkProtocolCompliance:
@@ -276,10 +389,18 @@ class TestOkProtocolCompliance:
         # Should have _get_messages_by_severity
         assert hasattr(ok, '_get_messages_by_severity')
 
+    def test_has_success_messages_protocol(self):
+        """Test HasSuccessMessages protocol compliance."""
+        ok = Ok(value=42)
+
+        assert hasattr(ok, 'success_messages')
+        assert hasattr(ok, 'has_successes')
+        assert callable(ok.has_successes)
+
     def test_has_info_messages_protocol(self):
         """Test HasInfoMessages protocol compliance."""
         ok = Ok(value=42)
-        
+
         assert hasattr(ok, 'info_messages')
         assert hasattr(ok, 'has_info')
         assert callable(ok.has_info)
