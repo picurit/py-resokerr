@@ -8,6 +8,7 @@ from typing import (
     Dict,
     final,
     Generic,
+    Literal,
     Mapping,
     Optional,
     overload,
@@ -77,26 +78,6 @@ class MessageTrace(Generic[M]):
         """Factory method for error messages."""
         return cls(message=message, severity=TraceSeverityLevel.ERROR, code=code, details=details, stack_trace=stack_trace)
 
-    def _serialize_message(self) -> Any:
-        """Serialize the generic message.
-
-        Handles different message types:
-        - JSON primitives (str, int, float, bool, None): returned as-is
-        - Objects implementing to_dict() protocol: calls to_dict()
-        - Other types: converted to string representation
-
-        Returns:
-            A serializable value representing the message.
-        """
-        if Validator.is_json_primitive(self.message):
-            return self.message
-        if Validator.has_to_dict(self.message):
-            # Type hint
-            serializable_message: Serializable = self.message
-            return serializable_message.to_dict()
-        # Fallback: convert to string representation
-        return str(self.message)
-
     def to_dict(self) -> Dict[str, Any]:
         """Serialize MessageTrace to a dictionary.
         
@@ -120,7 +101,7 @@ class MessageTrace(Generic[M]):
             {'message': 'Operation completed', 'severity': 'info', 'code': 'OP_001'}
         """
         result: Dict[str, Any] = {
-            "message": self._serialize_message(),
+            "message": TypeUtils.serialize(self.message),
             "severity": self.severity.value,
         }
         
@@ -145,17 +126,18 @@ class Serializable(Protocol):
     def to_dict(self) -> Dict[str, Any]: ...
 
 
-class Validator:
-    """Utility class for validation operations.
+class TypeUtils:
+    """Utility class for type inspection and serialization operations.
 
-    Provides static methods for checking object capabilities and constraints.
+    Provides static methods for checking object capabilities, type constraints,
+    and serializing objects to JSON-compatible representations.
     This class cannot be instantiated - all methods are static utilities.
     """
 
     __slots__ = ()  # Prevent instantiation with instance attributes
 
     def __new__(cls) -> None:
-        raise TypeError("Validator cannot be instantiated - use static methods directly")
+        raise TypeError("TypeUtils cannot be instantiated - use static methods directly")
 
     @staticmethod
     def is_json_primitive(obj: Any) -> bool:
@@ -171,15 +153,15 @@ class Validator:
             True if the object is a JSON primitive type, False otherwise.
 
         Example:
-            >>> Validator.is_json_primitive("hello")
+            >>> TypeUtils.is_json_primitive("hello")
             True
-            >>> Validator.is_json_primitive(42)
+            >>> TypeUtils.is_json_primitive(42)
             True
-            >>> Validator.is_json_primitive({"key": "value"})
+            >>> TypeUtils.is_json_primitive({"key": "value"})
             True
-            >>> Validator.is_json_primitive([1, 2, 3])
+            >>> TypeUtils.is_json_primitive([1, 2, 3])
             True
-            >>> Validator.is_json_primitive(CustomObject())
+            >>> TypeUtils.is_json_primitive(CustomObject())
             False
         """
         return obj is None or isinstance(obj, (str, int, float, bool, dict, list))
@@ -203,12 +185,44 @@ class Validator:
             >>> class MyMessage:
             ...     def to_dict(self):
             ...         return {"data": "value"}
-            >>> Validator.has_to_dict(MyMessage())
+            >>> TypeUtils.has_to_dict(MyMessage())
             True
-            >>> Validator.has_to_dict("plain string")
+            >>> TypeUtils.has_to_dict("plain string")
             False
         """
         return isinstance(obj, Serializable)
+
+    @staticmethod
+    def serialize(obj: Any) -> Any:
+        """Serialize an object to a JSON-compatible representation.
+
+        Handles different object types:
+        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
+        - Objects implementing to_dict() protocol: calls to_dict()
+        - Other types: converted to string representation
+
+        Args:
+            obj: The object to serialize.
+
+        Returns:
+            A JSON-serializable representation of the object.
+
+        Example:
+            >>> TypeUtils.serialize("hello")
+            'hello'
+            >>> TypeUtils.serialize({"key": "value"})
+            {'key': 'value'}
+            >>> class Custom:
+            ...     def to_dict(self): return {"data": 1}
+            >>> TypeUtils.serialize(Custom())
+            {'data': 1}
+        """
+        if TypeUtils.is_json_primitive(obj):
+            return obj
+        if TypeUtils.has_to_dict(obj):
+            serializable: Serializable = obj
+            return serializable.to_dict()
+        return str(obj)
 
 
 class HasMessages(Protocol[M]):
@@ -373,63 +387,105 @@ class StatusMixin:
 
 class UnwrapValueMixin(Generic[V]):
     """Mixin for unwrapping values from Ok instances.
-    
+
     Provides methods to extract the contained value with various
     fallback strategies when the value is None.
     """
-    
+
     @overload
     def unwrap(self: HasValue[V]) -> Optional[V]: ...
-    
+
     @overload
     def unwrap(self: HasValue[V], default: V) -> V: ...
-    
-    def unwrap(self: HasValue[V], default: Optional[V] = None) -> Optional[V]:
+
+    @overload
+    def unwrap(self: HasValue[V], default: Optional[V], as_dict: Literal[False]) -> Optional[V]: ...
+
+    @overload
+    def unwrap(self: HasValue[V], default: Optional[V], as_dict: Literal[True]) -> Dict[str, Any]: ...
+
+    @overload
+    def unwrap(self: HasValue[V], *, as_dict: Literal[True]) -> Dict[str, Any]: ...
+
+    def unwrap(self: HasValue[V], default: Optional[V] = None, as_dict: bool = False) -> Union[Optional[V], Dict[str, Any]]:
         """Unwrap the contained value.
-        
+
         Returns the contained value if present, otherwise returns the
         provided default (or None if no default is provided).
-        
+
         Args:
             default: Optional default value to return if value is None.
                      Must be of the same type as the value.
-        
+            as_dict: If True, returns the value serialized as a dict-compatible
+                     representation. JSON primitives are returned as-is, objects
+                     with to_dict() have that method called, others become strings.
+
         Returns:
-            The contained value, the default, or None.
+            The contained value, the default, or None. If as_dict=True, returns
+            the serialized representation instead.
+
+        Example:
+            >>> ok = Ok(value={"name": "test"})
+            >>> ok.unwrap()
+            {'name': 'test'}
+            >>> ok.unwrap(as_dict=True)
+            {'name': 'test'}
         """
-        if self.value is not None:
-            return self.value
-        return default
+        result = self.value if self.value is not None else default
+        if as_dict and result is not None:
+            return TypeUtils.serialize(result)
+        return result
 
 class UnwrapCauseMixin(Generic[E]):
     """Mixin for unwrapping causes from Err instances.
-    
+
     Provides methods to extract the contained cause with various
     fallback strategies when the cause is None.
     """
-    
+
     @overload
     def unwrap(self: HasCause[E]) -> Optional[E]: ...
-    
+
     @overload
     def unwrap(self: HasCause[E], default: E) -> E: ...
-    
-    def unwrap(self: HasCause[E], default: Optional[E] = None) -> Optional[E]:
+
+    @overload
+    def unwrap(self: HasCause[E], default: Optional[E], as_dict: Literal[False]) -> Optional[E]: ...
+
+    @overload
+    def unwrap(self: HasCause[E], default: Optional[E], as_dict: Literal[True]) -> Any: ...
+
+    @overload
+    def unwrap(self: HasCause[E], *, as_dict: Literal[True]) -> Any: ...
+
+    def unwrap(self: HasCause[E], default: Optional[E] = None, as_dict: bool = False) -> Union[Optional[E], Any]:
         """Unwrap the contained cause.
-        
+
         Returns the contained cause if present, otherwise returns the
         provided default (or None if no default is provided).
-        
+
         Args:
             default: Optional default value to return if cause is None.
                      Must be of the same type as the cause.
-        
+            as_dict: If True, returns the cause serialized as a dict-compatible
+                     representation. JSON primitives are returned as-is, objects
+                     with to_dict() have that method called, others become strings.
+
         Returns:
-            The contained cause, the default, or None.
+            The contained cause, the default, or None. If as_dict=True, returns
+            the serialized representation instead.
+
+        Example:
+            >>> err = Err(cause=ValueError("invalid input"))
+            >>> err.unwrap()
+            ValueError('invalid input')
+            >>> err.unwrap(as_dict=True)
+            "ValueError('invalid input')"
         """
-        if self.cause is not None:
-            return self.cause
-        return default
+        result = self.cause if self.cause is not None else default
+        if as_dict and result is not None:
+            return TypeUtils.serialize(result)
+        return result
 
 class MapValueMixin(Generic[V, M]):
     """Mixin for mapping/transforming values in Ok instances.
@@ -623,26 +679,6 @@ class Ok(Generic[V, M],
             metadata=metadata
         )
 
-    def _serialize_value(self) -> Any:
-        """Serialize the generic value.
-
-        Handles different value types:
-        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
-        - Objects implementing to_dict() protocol: calls to_dict()
-        - Other types: converted to string representation
-
-        Returns:
-            A serializable representation of the value.
-        """
-        if Validator.is_json_primitive(self.value):
-            return self.value
-        if Validator.has_to_dict(self.value):
-            # Type hint
-            serializable_value: Serializable = self.value
-            return serializable_value.to_dict()
-        # Fallback: convert to string representation
-        return str(self.value)
-
     def to_dict(self) -> Dict[str, Any]:
         """Serialize Ok to a dictionary.
 
@@ -668,7 +704,7 @@ class Ok(Generic[V, M],
         result: Dict[str, Any] = {
             "is_ok": True,
             "is_err": False,
-            "value": self._serialize_value(),
+            "value": TypeUtils.serialize(self.value),
             "messages": [msg.to_dict() for msg in self.messages],
         }
 
@@ -785,26 +821,6 @@ class Err(Generic[E, M],
             metadata=metadata
         )
 
-    def _serialize_cause(self) -> Any:
-        """Serialize the generic cause.
-
-        Handles different cause types:
-        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
-        - Objects implementing to_dict() protocol: calls to_dict()
-        - Other types: converted to string representation
-
-        Returns:
-            A serializable representation of the cause.
-        """
-        if Validator.is_json_primitive(self.cause):
-            return self.cause
-        if Validator.has_to_dict(self.cause):
-            # Type hint
-            serializeable_cause: Serializable = self.cause
-            return serializeable_cause.to_dict()
-        # Fallback: convert to string representation
-        return str(self.cause)
-
     def to_dict(self) -> Dict[str, Any]:
         """Serialize Err to a dictionary.
 
@@ -830,7 +846,7 @@ class Err(Generic[E, M],
         result: Dict[str, Any] = {
             "is_ok": False,
             "is_err": True,
-            "cause": self._serialize_cause(),
+            "cause": TypeUtils.serialize(self.cause),
             "messages": [msg.to_dict() for msg in self.messages],
         }
 
@@ -851,5 +867,4 @@ __all__ = [
     "ResultBase",
     "MessageTrace",
     "TraceSeverityLevel",
-    "Validator",
 ]
