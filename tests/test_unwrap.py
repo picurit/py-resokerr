@@ -1,8 +1,29 @@
 """Tests for unwrap methods in Ok and Err classes."""
 import pytest
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from resokerr.core import Ok, Err
+
+
+class CustomSerializable:
+    """Helper class that implements to_dict() for testing."""
+    def __init__(self, data: Any):
+        self.data = data
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"data": self.data}
+
+    def __repr__(self) -> str:
+        return f"CustomSerializable({self.data!r})"
+
+
+class NonSerializable:
+    """Helper class without to_dict() for testing string fallback."""
+    def __init__(self, value: str):
+        self.value = value
+
+    def __str__(self) -> str:
+        return f"NonSerializable({self.value})"
 
 
 class TestOkUnwrap:
@@ -253,3 +274,290 @@ class TestUnwrapTypeConsistency:
         result = err.unwrap(default=default)
         assert result == default
         assert isinstance(result, str)
+
+
+class TestOkUnwrapAsDict:
+    """Test unwrap with as_dict=True for Ok instances."""
+
+    def test_unwrap_as_dict_with_dict_value(self):
+        """Test as_dict=True with dict value returns it as-is."""
+        value = {"name": "test", "count": 42}
+        ok = Ok(value=value)
+        result = ok.unwrap(as_dict=True)
+        assert result == value
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_string_value(self):
+        """Test as_dict=True with string returns it as-is (JSON primitive)."""
+        ok = Ok(value="hello")
+        result = ok.unwrap(as_dict=True)
+        assert result == "hello"
+        assert isinstance(result, str)
+
+    def test_unwrap_as_dict_with_int_value(self):
+        """Test as_dict=True with int returns it as-is (JSON primitive)."""
+        ok = Ok(value=42)
+        result = ok.unwrap(as_dict=True)
+        assert result == 42
+        assert isinstance(result, int)
+
+    def test_unwrap_as_dict_with_list_value(self):
+        """Test as_dict=True with list returns it as-is (JSON primitive)."""
+        ok = Ok(value=[1, 2, 3])
+        result = ok.unwrap(as_dict=True)
+        assert result == [1, 2, 3]
+        assert isinstance(result, list)
+
+    def test_unwrap_as_dict_with_bool_value(self):
+        """Test as_dict=True with bool returns it as-is (JSON primitive)."""
+        ok = Ok(value=True)
+        result = ok.unwrap(as_dict=True)
+        assert result is True
+
+    def test_unwrap_as_dict_with_none_value(self):
+        """Test as_dict=True with None value returns None."""
+        ok = Ok(value=None)
+        result = ok.unwrap(as_dict=True)
+        assert result is None
+
+    def test_unwrap_as_dict_with_serializable_object(self):
+        """Test as_dict=True with object implementing to_dict()."""
+        obj = CustomSerializable("test_data")
+        ok = Ok(value=obj)
+        result = ok.unwrap(as_dict=True)
+        assert result == {"data": "test_data"}
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_non_serializable_object(self):
+        """Test as_dict=True with object without to_dict() returns string."""
+        obj = NonSerializable("test")
+        ok = Ok(value=obj)
+        result = ok.unwrap(as_dict=True)
+        assert result == "NonSerializable(test)"
+        assert isinstance(result, str)
+
+    def test_unwrap_as_dict_false_returns_raw_value(self):
+        """Test as_dict=False returns the raw value (default behavior)."""
+        obj = CustomSerializable("test")
+        ok = Ok(value=obj)
+        result = ok.unwrap(as_dict=False)
+        assert result is obj
+        assert isinstance(result, CustomSerializable)
+
+    def test_unwrap_as_dict_with_default_when_value_is_none(self):
+        """Test as_dict=True with default when value is None."""
+        default = {"default": True}
+        ok: Ok[Optional[Dict[str, Any]], str] = Ok(value=None)
+        result = ok.unwrap(default=default, as_dict=True)
+        assert result == {"default": True}
+
+    def test_unwrap_as_dict_with_serializable_default(self):
+        """Test as_dict=True serializes the default value too."""
+        default = CustomSerializable("default_data")
+        ok: Ok[Optional[CustomSerializable], str] = Ok(value=None)
+        result = ok.unwrap(default=default, as_dict=True)
+        assert result == {"data": "default_data"}
+
+    def test_unwrap_as_dict_ignores_default_when_value_present(self):
+        """Test as_dict=True uses value, not default, when value is present."""
+        obj = CustomSerializable("actual")
+        default = CustomSerializable("default")
+        ok = Ok(value=obj)
+        result = ok.unwrap(default=default, as_dict=True)
+        assert result == {"data": "actual"}
+
+    def test_unwrap_as_dict_with_nested_structure(self):
+        """Test as_dict=True with nested dict structure."""
+        value = {"outer": {"inner": {"deep": 42}}, "list": [1, 2, 3]}
+        ok = Ok(value=value)
+        result = ok.unwrap(as_dict=True)
+        assert result == value
+        assert result["outer"]["inner"]["deep"] == 42
+
+
+class TestErrUnwrapAsDict:
+    """Test unwrap with as_dict=True for Err instances."""
+
+    def test_unwrap_as_dict_with_string_cause(self):
+        """Test as_dict=True with string cause returns it as-is."""
+        err = Err(cause="error message")
+        result = err.unwrap(as_dict=True)
+        assert result == "error message"
+        assert isinstance(result, str)
+
+    def test_unwrap_as_dict_with_dict_cause(self):
+        """Test as_dict=True with dict cause returns it as-is."""
+        cause = {"error_code": 500, "message": "Internal error"}
+        err = Err(cause=cause)
+        result = err.unwrap(as_dict=True)
+        assert result == cause
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_exception_cause(self):
+        """Test as_dict=True with exception returns string representation."""
+        exception = ValueError("invalid input")
+        err = Err(cause=exception)
+        result = err.unwrap(as_dict=True)
+        # Exceptions don't have to_dict, so they become strings
+        assert result == "invalid input"
+        assert isinstance(result, str)
+
+    def test_unwrap_as_dict_with_serializable_cause(self):
+        """Test as_dict=True with object implementing to_dict()."""
+        obj = CustomSerializable("error_data")
+        err = Err(cause=obj)
+        result = err.unwrap(as_dict=True)
+        assert result == {"data": "error_data"}
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_non_serializable_cause(self):
+        """Test as_dict=True with object without to_dict() returns string."""
+        obj = NonSerializable("error")
+        err = Err(cause=obj)
+        result = err.unwrap(as_dict=True)
+        assert result == "NonSerializable(error)"
+        assert isinstance(result, str)
+
+    def test_unwrap_as_dict_with_none_cause(self):
+        """Test as_dict=True with None cause returns None."""
+        err = Err(cause=None)
+        result = err.unwrap(as_dict=True)
+        assert result is None
+
+    def test_unwrap_as_dict_false_returns_raw_cause(self):
+        """Test as_dict=False returns the raw cause (default behavior)."""
+        obj = CustomSerializable("error")
+        err = Err(cause=obj)
+        result = err.unwrap(as_dict=False)
+        assert result is obj
+        assert isinstance(result, CustomSerializable)
+
+    def test_unwrap_as_dict_with_default_when_cause_is_none(self):
+        """Test as_dict=True with default when cause is None."""
+        default = {"error": "unknown"}
+        err: Err[Optional[Dict[str, Any]], str] = Err(cause=None)
+        result = err.unwrap(default=default, as_dict=True)
+        assert result == {"error": "unknown"}
+
+    def test_unwrap_as_dict_with_serializable_default(self):
+        """Test as_dict=True serializes the default value too."""
+        default = CustomSerializable("default_error")
+        err: Err[Optional[CustomSerializable], str] = Err(cause=None)
+        result = err.unwrap(default=default, as_dict=True)
+        assert result == {"data": "default_error"}
+
+    def test_unwrap_as_dict_ignores_default_when_cause_present(self):
+        """Test as_dict=True uses cause, not default, when cause is present."""
+        obj = CustomSerializable("actual_error")
+        default = CustomSerializable("default_error")
+        err = Err(cause=obj)
+        result = err.unwrap(default=default, as_dict=True)
+        assert result == {"data": "actual_error"}
+
+    def test_unwrap_as_dict_with_int_error_code(self):
+        """Test as_dict=True with integer error code."""
+        err = Err(cause=404)
+        result = err.unwrap(as_dict=True)
+        assert result == 404
+        assert isinstance(result, int)
+
+
+class TestUnwrapAsDictEdgeCases:
+    """Test edge cases for unwrap with as_dict parameter."""
+
+    def test_ok_unwrap_as_dict_preserves_immutability(self):
+        """Test that unwrap(as_dict=True) doesn't modify Ok instance."""
+        obj = CustomSerializable("test")
+        ok = Ok(value=obj)
+        _ = ok.unwrap(as_dict=True)
+        # Original value should be preserved
+        assert ok.value is obj
+        assert isinstance(ok.value, CustomSerializable)
+
+    def test_err_unwrap_as_dict_preserves_immutability(self):
+        """Test that unwrap(as_dict=True) doesn't modify Err instance."""
+        obj = CustomSerializable("error")
+        err = Err(cause=obj)
+        _ = err.unwrap(as_dict=True)
+        # Original cause should be preserved
+        assert err.cause is obj
+        assert isinstance(err.cause, CustomSerializable)
+
+    def test_ok_unwrap_as_dict_with_messages(self):
+        """Test unwrap(as_dict=True) works with Ok containing messages."""
+        obj = CustomSerializable("value")
+        ok = Ok(value=obj).with_info("Info").with_warning("Warning")
+        result = ok.unwrap(as_dict=True)
+        assert result == {"data": "value"}
+
+    def test_err_unwrap_as_dict_with_messages(self):
+        """Test unwrap(as_dict=True) works with Err containing messages."""
+        obj = CustomSerializable("error")
+        err = Err(cause=obj).with_error("Error message")
+        result = err.unwrap(as_dict=True)
+        assert result == {"data": "error"}
+
+    def test_ok_unwrap_as_dict_with_metadata(self):
+        """Test unwrap(as_dict=True) works with Ok containing metadata."""
+        obj = CustomSerializable("value")
+        ok = Ok(value=obj, metadata={"key": "meta"})
+        result = ok.unwrap(as_dict=True)
+        assert result == {"data": "value"}
+        # Metadata is separate from the unwrapped value
+        assert ok.metadata["key"] == "meta"
+
+    def test_err_unwrap_as_dict_with_metadata(self):
+        """Test unwrap(as_dict=True) works with Err containing metadata."""
+        obj = CustomSerializable("error")
+        err = Err(cause=obj, metadata={"key": "meta"})
+        result = err.unwrap(as_dict=True)
+        assert result == {"data": "error"}
+        assert err.metadata["key"] == "meta"
+
+    def test_ok_unwrap_chaining_with_as_dict(self):
+        """Test Ok methods can be chained before unwrap(as_dict=True)."""
+        result = (Ok(value=CustomSerializable("chained"))
+                  .with_info("Step 1")
+                  .with_warning("Step 2")
+                  .unwrap(as_dict=True))
+        assert result == {"data": "chained"}
+
+    def test_err_unwrap_chaining_with_as_dict(self):
+        """Test Err methods can be chained before unwrap(as_dict=True)."""
+        result = (Err(cause=CustomSerializable("chained_error"))
+                  .with_error("Error detail")
+                  .with_info("Context")
+                  .unwrap(as_dict=True))
+        assert result == {"data": "chained_error"}
+
+    def test_unwrap_as_dict_explicit_false(self):
+        """Test that as_dict=False explicitly works same as default."""
+        obj = CustomSerializable("test")
+        ok = Ok(value=obj)
+
+        result_default = ok.unwrap()
+        result_explicit_false = ok.unwrap(as_dict=False)
+
+        assert result_default is result_explicit_false
+        assert result_default is obj
+
+    def test_unwrap_with_float_value_as_dict(self):
+        """Test as_dict=True with float value (JSON primitive)."""
+        ok = Ok(value=3.14159)
+        result = ok.unwrap(as_dict=True)
+        assert result == 3.14159
+        assert isinstance(result, float)
+
+    def test_unwrap_as_dict_with_empty_dict(self):
+        """Test as_dict=True with empty dict."""
+        ok = Ok(value={})
+        result = ok.unwrap(as_dict=True)
+        assert result == {}
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_empty_list(self):
+        """Test as_dict=True with empty list."""
+        ok = Ok(value=[])
+        result = ok.unwrap(as_dict=True)
+        assert result == []
+        assert isinstance(result, list)

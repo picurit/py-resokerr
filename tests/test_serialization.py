@@ -2,8 +2,7 @@
 import pytest
 from typing import Any, Dict
 
-from resokerr.core import Ok, Err, MessageTrace, TraceSeverityLevel, Validator
-
+from resokerr.core import Ok, Err, MessageTrace
 
 class TestOkToDict:
     """Test Ok.to_dict() serialization method."""
