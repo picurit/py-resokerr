@@ -1,3 +1,19 @@
+## v1.0.0 (2026-01-23)
+
+### BREAKING CHANGE
+
+- Validator class is no longer exported from the public API.
+Users should use to_dict() on Ok/Err/MessageTrace or unwrap(as_dict=True)
+instead of calling Validator methods directly.
+
+### Feat
+
+- :sparkles: Add Validator class for message serialization checks and update MessageTrace serialization methods
+
+### Refactor
+
+- :recycle: Rename Validator to TypeUtils and make internal
+
 ## v0.3.0 (2026-01-22)
 
 ### Feat
