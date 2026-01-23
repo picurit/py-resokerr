@@ -567,9 +567,61 @@ print(get_formatted_temp("Tokyo"))   # 22.3°C / 72.1°F
 print(get_formatted_temp("Paris"))   # Error: Unknown city: Paris
 ```
 
+### Serializing Results
+
+Both `Ok` and `Err` provide a `to_dict()` method for easy JSON serialization. This is useful for API responses, logging, or any scenario where you need to convert results to a serializable format.
+
+```python
+from resokerr import Ok, Err
+import json
+
+# Serialize an Ok result
+ok = (Ok(value={"user_id": 123}, metadata={"request_id": "abc"})
+    .with_info("User fetched successfully")
+    .with_warning("Using cached data"))
+
+print(json.dumps(ok.to_dict(), indent=2))
+# {
+#   "is_ok": true,
+#   "is_err": false,
+#   "value": {"user_id": 123},
+#   "messages": [
+#     {"message": "User fetched successfully", "severity": "info"},
+#     {"message": "Using cached data", "severity": "warning"}
+#   ],
+#   "metadata": {"request_id": "abc"}
+# }
+
+# Serialize an Err result
+err = (Err(cause="User not found", metadata={"request_id": "xyz"})
+    .with_error("Database query failed", code="DB_001"))
+
+print(json.dumps(err.to_dict(), indent=2))
+# {
+#   "is_ok": false,
+#   "is_err": true,
+#   "cause": "User not found",
+#   "messages": [
+#     {"message": "Database query failed", "severity": "error", "code": "DB_001"}
+#   ],
+#   "metadata": {"request_id": "xyz"}
+# }
+```
+
+**Output structure:**
+
+| Field | Ok | Err | Description |
+|-------|-----|-----|-------------|
+| `is_ok` | `true` | `false` | Boolean indicating success |
+| `is_err` | `false` | `true` | Boolean indicating failure |
+| `value` | ✓ | - | The success value (Ok only) |
+| `cause` | - | ✓ | The error cause (Err only) |
+| `messages` | ✓ | ✓ | Array of serialized MessageTrace objects |
+| `metadata` | ✓ (optional) | ✓ (optional) | Only included if not None |
+
 ### Serializing Messages
 
-`MessageTrace` instances are immutable and use internal types like `MappingProxyType` and `Enum`. To serialize them for JSON responses, logging, or APIs, use the `to_dict()` method:
+`MessageTrace` instances are immutable and use internal types like `MappingProxyType` and `Enum`. To serialize them individually, use the `to_dict()` method:
 
 ```python
 from resokerr import Ok, Err
@@ -587,48 +639,44 @@ print(serialized_messages)
 #     {'message': 'Step 1 completed', 'severity': 'info', 'code': 'STEP_1'},
 #     {'message': 'Minor issue detected', 'severity': 'warning', 'details': {'field': 'optional'}}
 # ]
-
-# Use in API responses
-import json
-response_data = {
-    "success": result.is_ok(),
-    "value": result.value,
-    "messages": [msg.to_dict() for msg in result.messages]
-}
-json_response = json.dumps(response_data)
 ```
 
-**How serialization works:**
+**How serialization works for values and causes:**
 
-- **Primitives** (`str`, `int`, `float`, `bool`, `None`): Returned as-is
+- **JSON primitive types** (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`): Returned as-is
 - **Objects with `to_dict()` method**: The method is called to serialize them
-- **Other objects**: Converted to string using `str()`
+- **Other objects** (e.g., exceptions): Converted to string using `str()`
 
 ```python
-from resokerr import MessageTrace
+from resokerr import Ok, Err
 
-# Custom serializable message type
-class ValidationError:
-    def __init__(self, field: str, reason: str):
-        self.field = field
-        self.reason = reason
-    
+# Custom serializable value type
+class UserData:
+    def __init__(self, name: str, email: str):
+        self.name = name
+        self.email = email
+
     def to_dict(self):
-        return {"field": self.field, "reason": self.reason}
+        return {"name": self.name, "email": self.email}
 
-# Use custom message type
-error = ValidationError("email", "Invalid format")
-msg = MessageTrace.error(error, code="VALIDATION_FAILED")
-print(msg.to_dict())
-# {'message': {'field': 'email', 'reason': 'Invalid format'}, 'severity': 'error', 'code': 'VALIDATION_FAILED'}
+# Objects with to_dict() are serialized automatically
+user = UserData("Alice", "alice@example.com")
+ok = Ok(value=user)
+print(ok.to_dict()["value"])
+# {'name': 'Alice', 'email': 'alice@example.com'}
+
+# Exceptions are converted to string
+err = Err(cause=ValueError("Invalid input"))
+print(err.to_dict()["cause"])
+# "Invalid input"
 ```
 
 **Checking if an object is serializable:**
 
-Use `MessageTrace.is_serializable()` to check if an object has a `to_dict()` method:
+Use `Validator.has_to_dict()` to check if an object has a `to_dict()` method:
 
 ```python
-from resokerr import MessageTrace
+from resokerr import Validator
 
 class SerializableData:
     def to_dict(self):
@@ -637,10 +685,9 @@ class SerializableData:
 class PlainData:
     pass
 
-print(MessageTrace.is_serializable(SerializableData()))  # True
-print(MessageTrace.is_serializable(PlainData()))         # False
-print(MessageTrace.is_serializable("string"))            # False
-print(MessageTrace.is_serializable(MessageTrace.info("test")))  # True (MessageTrace itself is serializable)
+print(Validator.has_to_dict(SerializableData()))  # True
+print(Validator.has_to_dict(PlainData()))         # False
+print(Validator.has_to_dict("string"))            # False
 ```
 
 ## Best Practices
@@ -824,6 +871,7 @@ Represents a successful result.
 - `with_metadata(metadata) -> Ok` - Replace metadata
 - `unwrap(default=None) -> Optional[V]` - Extract the contained value, returning `default` if value is `None`
 - `map(f: Callable[[V], T]) -> Ok[T, M]` - Apply transformation function to the value, preserving messages and metadata
+- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `value`, `messages`, and optionally `metadata`
 
 **Properties:**
 - `info_messages` - Tuple of info messages
@@ -852,6 +900,7 @@ Represents a failed result.
 - `with_metadata(metadata) -> Err` - Replace metadata
 - `unwrap(default=None) -> Optional[E]` - Extract the contained cause, returning `default` if cause is `None`
 - `map(f: Callable[[E], T]) -> Err[T, M]` - Apply transformation function to the cause, preserving messages and metadata
+- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `cause`, `messages`, and optionally `metadata`
 
 **Properties:**
 - `error_messages` - Tuple of error messages
@@ -873,12 +922,18 @@ Immutable message with severity tracking.
 - `MessageTrace.info(message, code, details, stack_trace)` - Create INFO message
 - `MessageTrace.warning(message, code, details, stack_trace)` - Create WARNING message
 - `MessageTrace.error(message, code, details, stack_trace)` - Create ERROR message
-
-**Static Methods:**
-- `MessageTrace.is_serializable(obj) -> bool` - Check if an object has a `to_dict()` method for serialization
+- `MessageTrace.success(message, code, details, stack_trace)` - Create SUCCESS message
 
 **Instance Methods:**
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary. Returns a dict with `message`, `severity`, and optionally `code`, `details`, `stack_trace` (only included if not None)
+
+#### `Validator`
+
+Utility class for validation operations. Cannot be instantiated—all methods are static.
+
+**Static Methods:**
+- `Validator.is_json_primitive(obj) -> bool` - Check if object is natively JSON-serializable (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`)
+- `Validator.has_to_dict(obj) -> bool` - Check if object implements the `to_dict()` protocol
 
 #### Type Aliases
 
