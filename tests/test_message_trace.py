@@ -3,7 +3,7 @@ import pytest
 from types import MappingProxyType
 from typing import Any, Dict
 
-from resokerr.core import MessageTrace, TraceSeverityLevel
+from resokerr.core import MessageTrace, TraceSeverityLevel, Validator
 
 
 class TestMessageTraceCreation:
@@ -354,73 +354,132 @@ class TestMessageTraceSerializationInResults:
         assert serialized == []
 
 
-class TestSerializableProtocol:
-    """Test the is_serializable() static method behavior."""
+class TestValidatorHasToDict:
+    """Test the Validator.has_to_dict() static method behavior."""
 
-    def test_is_serializable_with_to_dict_method(self):
-        """Test that objects with to_dict() are detected as serializable."""
+    def test_has_to_dict_with_to_dict_method(self):
+        """Test that objects with to_dict() are detected correctly."""
         class ImplementsToDict:
             def to_dict(self) -> Dict[str, Any]:
                 return {"key": "value"}
-        
+
         class DoesNotImplementToDict:
             pass
-        
+
         obj_with = ImplementsToDict()
         obj_without = DoesNotImplementToDict()
-        
-        assert MessageTrace.is_serializable(obj_with) is True
-        assert MessageTrace.is_serializable(obj_without) is False
 
-    def test_message_trace_is_serializable(self):
-        """Test that MessageTrace itself is detected as serializable."""
+        assert Validator.has_to_dict(obj_with) is True
+        assert Validator.has_to_dict(obj_without) is False
+
+    def test_message_trace_has_to_dict(self):
+        """Test that MessageTrace itself has to_dict."""
         msg = MessageTrace.info("Test message")
-        assert MessageTrace.is_serializable(msg) is True
+        assert Validator.has_to_dict(msg) is True
 
-    def test_nested_serializable_in_message_trace(self):
-        """Test MessageTrace with a serializable message type."""
+    def test_nested_has_to_dict_in_message_trace(self):
+        """Test MessageTrace with an object that has to_dict."""
         class NestedData:
             def __init__(self, value: int):
                 self.value = value
-            
+
             def to_dict(self) -> Dict[str, Any]:
                 return {"nested_value": self.value}
-        
+
         nested = NestedData(42)
-        assert MessageTrace.is_serializable(nested) is True
-        
+        assert Validator.has_to_dict(nested) is True
+
         msg = MessageTrace.info(nested)
         result = msg.to_dict()
-        
+
         assert result["message"] == {"nested_value": 42}
 
-    def test_serializable_check_precedes_str_fallback(self):
+    def test_to_dict_check_precedes_str_fallback(self):
         """Test that to_dict() is used before str() fallback."""
         class CustomWithBoth:
             def to_dict(self) -> Dict[str, Any]:
                 return {"from": "to_dict"}
-            
+
             def __str__(self) -> str:
                 return "from __str__"
-        
+
         obj = CustomWithBoth()
         msg = MessageTrace.info(obj)
         result = msg.to_dict()
-        
+
         # Should use to_dict(), not __str__()
         assert result["message"] == {"from": "to_dict"}
 
-    def test_primitives_not_serializable(self):
-        """Test that primitives are not detected as serializable."""
-        # Primitives don't have to_dict() method
-        assert MessageTrace.is_serializable("string") is False
-        assert MessageTrace.is_serializable(42) is False
-        assert MessageTrace.is_serializable(3.14) is False
-        assert MessageTrace.is_serializable(True) is False
-        assert MessageTrace.is_serializable(None) is False
+    def test_primitives_do_not_have_to_dict(self):
+        """Test that primitives don't have to_dict() method."""
+        assert Validator.has_to_dict("string") is False
+        assert Validator.has_to_dict(42) is False
+        assert Validator.has_to_dict(3.14) is False
+        assert Validator.has_to_dict(True) is False
+        assert Validator.has_to_dict(None) is False
 
-    def test_dict_not_serializable(self):
-        """Test that dict is not detected as serializable (no to_dict method)."""
-        # dict doesn't have to_dict() method
-        assert MessageTrace.is_serializable({}) is False
-        assert MessageTrace.is_serializable({"key": "value"}) is False
+    def test_dict_does_not_have_to_dict(self):
+        """Test that dict doesn't have to_dict method (it's not the protocol)."""
+        assert Validator.has_to_dict({}) is False
+        assert Validator.has_to_dict({"key": "value"}) is False
+
+
+class TestValidatorIsJsonPrimitive:
+    """Test the Validator.is_json_primitive() static method behavior."""
+
+    def test_string_is_json_primitive(self):
+        """Test that strings are JSON primitives."""
+        assert Validator.is_json_primitive("hello") is True
+        assert Validator.is_json_primitive("") is True
+
+    def test_int_is_json_primitive(self):
+        """Test that integers are JSON primitives."""
+        assert Validator.is_json_primitive(42) is True
+        assert Validator.is_json_primitive(0) is True
+        assert Validator.is_json_primitive(-1) is True
+
+    def test_float_is_json_primitive(self):
+        """Test that floats are JSON primitives."""
+        assert Validator.is_json_primitive(3.14) is True
+        assert Validator.is_json_primitive(0.0) is True
+        assert Validator.is_json_primitive(-1.5) is True
+
+    def test_bool_is_json_primitive(self):
+        """Test that booleans are JSON primitives."""
+        assert Validator.is_json_primitive(True) is True
+        assert Validator.is_json_primitive(False) is True
+
+    def test_none_is_json_primitive(self):
+        """Test that None is a JSON primitive."""
+        assert Validator.is_json_primitive(None) is True
+
+    def test_dict_is_json_primitive(self):
+        """Test that dict is a JSON primitive."""
+        assert Validator.is_json_primitive({}) is True
+        assert Validator.is_json_primitive({"key": "value"}) is True
+
+    def test_list_is_json_primitive(self):
+        """Test that list is a JSON primitive."""
+        assert Validator.is_json_primitive([]) is True
+        assert Validator.is_json_primitive([1, 2, 3]) is True
+
+    def test_object_is_not_json_primitive(self):
+        """Test that custom objects are not JSON primitives."""
+        class CustomObject:
+            pass
+
+        assert Validator.is_json_primitive(CustomObject()) is False
+
+    def test_tuple_is_not_json_primitive(self):
+        """Test that tuple is not a JSON primitive."""
+        assert Validator.is_json_primitive(()) is False
+        assert Validator.is_json_primitive((1, 2)) is False
+
+
+class TestValidatorCannotBeInstantiated:
+    """Test that Validator class cannot be instantiated."""
+
+    def test_validator_cannot_be_instantiated(self):
+        """Test that Validator cannot be instantiated."""
+        with pytest.raises(TypeError, match="Validator cannot be instantiated"):
+            Validator()
