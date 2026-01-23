@@ -475,6 +475,58 @@ def process_result(result: Result[int, str]) -> int:
         return -1
 ```
 
+### Unwrapping as Serialized Dict
+
+The `unwrap()` method accepts an optional `as_dict` parameter that returns the value or cause as a JSON-serializable representation:
+
+```python
+from resokerr import Ok, Err
+
+# Custom class with to_dict() method
+class UserData:
+    def __init__(self, name: str, age: int):
+        self.name = name
+        self.age = age
+
+    def to_dict(self):
+        return {"name": self.name, "age": self.age}
+
+user = UserData("Alice", 30)
+ok = Ok(value=user)
+
+# Default: returns the raw object
+raw = ok.unwrap()                    # Returns UserData instance
+print(type(raw))                     # <class 'UserData'>
+
+# With as_dict=True: returns serialized representation
+serialized = ok.unwrap(as_dict=True) # Returns {"name": "Alice", "age": 30}
+print(type(serialized))              # <class 'dict'>
+```
+
+**Serialization rules for `as_dict=True`:**
+
+| Type | Result |
+|------|--------|
+| JSON primitives (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`) | Returned as-is |
+| Objects with `to_dict()` method | `to_dict()` is called |
+| Other objects | Converted to string via `str()` |
+
+```python
+from resokerr import Ok, Err
+
+# JSON primitives are returned as-is
+ok = Ok(value={"key": "value"})
+ok.unwrap(as_dict=True)  # {"key": "value"}
+
+# Objects without to_dict() become strings
+err = Err(cause=ValueError("invalid"))
+err.unwrap(as_dict=True)  # "invalid"
+
+# Combined with default
+ok_empty = Ok(value=None)
+ok_empty.unwrap(default={"fallback": True}, as_dict=True)  # {"fallback": True}
+```
+
 ### Transforming with Map
 
 The `map()` method allows you to transform the contained value (for `Ok`) or cause (for `Err`) while preserving messages and metadata:
@@ -671,25 +723,6 @@ print(err.to_dict()["cause"])
 # "Invalid input"
 ```
 
-**Checking if an object is serializable:**
-
-Use `Validator.has_to_dict()` to check if an object has a `to_dict()` method:
-
-```python
-from resokerr import Validator
-
-class SerializableData:
-    def to_dict(self):
-        return {"data": "value"}
-
-class PlainData:
-    pass
-
-print(Validator.has_to_dict(SerializableData()))  # True
-print(Validator.has_to_dict(PlainData()))         # False
-print(Validator.has_to_dict("string"))            # False
-```
-
 ## Best Practices
 
 ### ✅ DO
@@ -869,7 +902,7 @@ Represents a successful result.
 - `with_info(message, code, details, stack_trace) -> Ok` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Ok` - Add warning message
 - `with_metadata(metadata) -> Ok` - Replace metadata
-- `unwrap(default=None) -> Optional[V]` - Extract the contained value, returning `default` if value is `None`
+- `unwrap(default=None, as_dict=False) -> Union[V, Any]` - Extract the contained value, returning `default` if value is `None`. If `as_dict=True`, returns a JSON-serializable representation
 - `map(f: Callable[[V], T]) -> Ok[T, M]` - Apply transformation function to the value, preserving messages and metadata
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `value`, `messages`, and optionally `metadata`
 
@@ -898,7 +931,7 @@ Represents a failed result.
 - `with_info(message, code, details, stack_trace) -> Err` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Err` - Add warning message
 - `with_metadata(metadata) -> Err` - Replace metadata
-- `unwrap(default=None) -> Optional[E]` - Extract the contained cause, returning `default` if cause is `None`
+- `unwrap(default=None, as_dict=False) -> Union[E, Any]` - Extract the contained cause, returning `default` if cause is `None`. If `as_dict=True`, returns a JSON-serializable representation
 - `map(f: Callable[[E], T]) -> Err[T, M]` - Apply transformation function to the cause, preserving messages and metadata
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `cause`, `messages`, and optionally `metadata`
 
@@ -926,14 +959,6 @@ Immutable message with severity tracking.
 
 **Instance Methods:**
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary. Returns a dict with `message`, `severity`, and optionally `code`, `details`, `stack_trace` (only included if not None)
-
-#### `Validator`
-
-Utility class for validation operations. Cannot be instantiated—all methods are static.
-
-**Static Methods:**
-- `Validator.is_json_primitive(obj) -> bool` - Check if object is natively JSON-serializable (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`)
-- `Validator.has_to_dict(obj) -> bool` - Check if object implements the `to_dict()` protocol
 
 #### Type Aliases
 
