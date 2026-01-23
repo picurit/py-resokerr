@@ -78,49 +78,24 @@ class MessageTrace(Generic[M]):
         return cls(message=message, severity=TraceSeverityLevel.ERROR, code=code, details=details, stack_trace=stack_trace)
 
     def _serialize_message(self) -> Any:
-        """Serialize the generic message
-        
+        """Serialize the generic message.
+
         Handles different message types:
-        - Primitives (str, int, float, bool, None): returned as-is
-        - Objects implementing Serializable protocol: calls to_dict()
+        - JSON primitives (str, int, float, bool, None): returned as-is
+        - Objects implementing to_dict() protocol: calls to_dict()
         - Other types: converted to string representation
-        
+
         Returns:
             A serializable value representing the message.
         """
-        # Primitives are already JSON-serializable
-        if self.message is None or isinstance(self.message, (str, int, float, bool)):
+        if Validator.is_json_primitive(self.message):
             return self.message
-        # Use internal Serializable protocol check for objects with to_dict()
-        if isinstance(self.message, Serializable):
-            return self.message.to_dict()
+        if Validator.has_to_dict(self.message):
+            # Type hint
+            serializable_message: Serializable = self.message
+            return serializable_message.to_dict()
         # Fallback: convert to string representation
         return str(self.message)
-
-    @staticmethod
-    def is_serializable(obj: Any) -> bool:
-        """Check if an object can be serialized via to_dict().
-        
-        This method checks whether an object implements a `to_dict()` method
-        that can be used for serialization. Useful for determining how a
-        custom message type will be handled during serialization.
-        
-        Args:
-            obj: The object to check for serialization capability.
-        
-        Returns:
-            True if the object has a to_dict() method, False otherwise.
-        
-        Example:
-            >>> class MyMessage:
-            ...     def to_dict(self):
-            ...         return {"data": "value"}
-            >>> MessageTrace.is_serializable(MyMessage())
-            True
-            >>> MessageTrace.is_serializable("plain string")
-            False
-        """
-        return isinstance(obj, Serializable)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize MessageTrace to a dictionary.
@@ -163,11 +138,78 @@ class MessageTrace(Generic[M]):
 @runtime_checkable
 class Serializable(Protocol):
     """Protocol for objects that can be serialized to a dictionary.
-    
+
     Objects implementing this protocol provide a `to_dict()` method
     that returns a JSON-serializable dictionary representation.
     """
     def to_dict(self) -> Dict[str, Any]: ...
+
+
+class Validator:
+    """Utility class for validation operations.
+
+    Provides static methods for checking object capabilities and constraints.
+    This class cannot be instantiated - all methods are static utilities.
+    """
+
+    __slots__ = ()  # Prevent instantiation with instance attributes
+
+    def __new__(cls) -> None:
+        raise TypeError("Validator cannot be instantiated - use static methods directly")
+
+    @staticmethod
+    def is_json_primitive(obj: Any) -> bool:
+        """Check if an object is natively JSON-serializable.
+
+        JSON primitive types are values that can be directly serialized to JSON
+        without any transformation: strings, numbers, booleans, None, dicts, and lists.
+
+        Args:
+            obj: The object to check.
+
+        Returns:
+            True if the object is a JSON primitive type, False otherwise.
+
+        Example:
+            >>> Validator.is_json_primitive("hello")
+            True
+            >>> Validator.is_json_primitive(42)
+            True
+            >>> Validator.is_json_primitive({"key": "value"})
+            True
+            >>> Validator.is_json_primitive([1, 2, 3])
+            True
+            >>> Validator.is_json_primitive(CustomObject())
+            False
+        """
+        return obj is None or isinstance(obj, (str, int, float, bool, dict, list))
+
+    @staticmethod
+    def has_to_dict(obj: Any) -> bool:
+        """Check if an object implements the to_dict() protocol.
+
+        This method checks whether an object has a `to_dict()` method
+        that can be used for serialization to a dictionary. Useful for
+        determining how a custom message type will be handled during
+        serialization.
+
+        Args:
+            obj: The object to check for to_dict() capability.
+
+        Returns:
+            True if the object has a to_dict() method, False otherwise.
+
+        Example:
+            >>> class MyMessage:
+            ...     def to_dict(self):
+            ...         return {"data": "value"}
+            >>> Validator.has_to_dict(MyMessage())
+            True
+            >>> Validator.has_to_dict("plain string")
+            False
+        """
+        return isinstance(obj, Serializable)
+
 
 class HasMessages(Protocol[M]):
     """Protocol for objects that have a messages attribute."""
@@ -581,6 +623,61 @@ class Ok(Generic[V, M],
             metadata=metadata
         )
 
+    def _serialize_value(self) -> Any:
+        """Serialize the generic value.
+
+        Handles different value types:
+        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
+        - Objects implementing to_dict() protocol: calls to_dict()
+        - Other types: converted to string representation
+
+        Returns:
+            A serializable representation of the value.
+        """
+        if Validator.is_json_primitive(self.value):
+            return self.value
+        if Validator.has_to_dict(self.value):
+            # Type hint
+            serializable_value: Serializable = self.value
+            return serializable_value.to_dict()
+        # Fallback: convert to string representation
+        return str(self.value)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize Ok to a dictionary.
+
+        Creates a serializable dictionary representation of the
+        Ok instance. Optional fields (metadata) are only included
+        if they have non-None values.
+
+        Returns:
+            A dictionary with the following structure:
+            {
+                "is_ok": True,
+                "is_err": False,
+                "value": <serialized value>,
+                "messages": [<serialized messages>],
+                "metadata": <optional>
+            }
+
+        Example:
+            >>> ok = Ok(value=42, messages=(MessageTrace.info("done"),))
+            >>> ok.to_dict()
+            {'is_ok': True, 'is_err': False, 'value': 42, 'messages': [{'message': 'done', 'severity': 'info'}]}
+        """
+        result: Dict[str, Any] = {
+            "is_ok": True,
+            "is_err": False,
+            "value": self._serialize_value(),
+            "messages": [msg.to_dict() for msg in self.messages],
+        }
+
+        if self.metadata is not None:
+            result["metadata"] = dict(self.metadata)
+
+        return result
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class Err(Generic[E, M],
@@ -687,7 +784,62 @@ class Err(Generic[E, M],
             messages=self.messages,
             metadata=metadata
         )
-    
+
+    def _serialize_cause(self) -> Any:
+        """Serialize the generic cause.
+
+        Handles different cause types:
+        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
+        - Objects implementing to_dict() protocol: calls to_dict()
+        - Other types: converted to string representation
+
+        Returns:
+            A serializable representation of the cause.
+        """
+        if Validator.is_json_primitive(self.cause):
+            return self.cause
+        if Validator.has_to_dict(self.cause):
+            # Type hint
+            serializeable_cause: Serializable = self.cause
+            return serializeable_cause.to_dict()
+        # Fallback: convert to string representation
+        return str(self.cause)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize Err to a dictionary.
+
+        Creates a serializable dictionary representation of the
+        Err instance. Optional fields (metadata) are only included
+        if they have non-None values.
+
+        Returns:
+            A dictionary with the following structure:
+            {
+                "is_ok": False,
+                "is_err": True,
+                "cause": <serialized cause>,
+                "messages": [<serialized messages>],
+                "metadata": <optional>
+            }
+
+        Example:
+            >>> err = Err(cause="not found", messages=(MessageTrace.error("failed"),))
+            >>> err.to_dict()
+            {'is_ok': False, 'is_err': True, 'cause': 'not found', 'messages': [{'message': 'failed', 'severity': 'error'}]}
+        """
+        result: Dict[str, Any] = {
+            "is_ok": False,
+            "is_err": True,
+            "cause": self._serialize_cause(),
+            "messages": [msg.to_dict() for msg in self.messages],
+        }
+
+        if self.metadata is not None:
+            result["metadata"] = dict(self.metadata)
+
+        return result
+
+
 # Type alias
 ResultBase: TypeAlias = Union[Ok[V, M], Err[E, M]] # Flexible and generic result type for complex scenarios
 Result: TypeAlias = Union[Ok[V, str], Err[E, str]] # Common and typical result type with string messages
@@ -699,4 +851,5 @@ __all__ = [
     "ResultBase",
     "MessageTrace",
     "TraceSeverityLevel",
+    "Validator",
 ]
