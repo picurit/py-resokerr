@@ -104,15 +104,16 @@ class MessageTrace(Generic[M]):
             "message": TypeUtils.serialize(self.message),
             "severity": self.severity.value,
         }
-        
+
         # Only include optional fields if they have values
         if self.code is not None:
             result["code"] = self.code
         if self.details is not None:
-            result["details"] = dict(self.details)  # Convert MappingProxyType to dict
+            # Recursively serialize details values (they may contain complex objects)
+            result["details"] = TypeUtils.serialize(dict(self.details))
         if self.stack_trace is not None:
             result["stack_trace"] = self.stack_trace
-        
+
         return result
 
 # Protocols
@@ -210,17 +211,15 @@ class TypeUtils:
         return isinstance(obj, BaseException)
 
     @staticmethod
-    def serialize_exception(exception: BaseException, as_dict: bool = False) -> Any:
+    def serialize_exception(exception: BaseException) -> Any:
         """Serialize an exception to a JSON-compatible representation.
 
         Args:
-            exc: The exception instance to serialize.
-            as_dict: If True, returns a dictionary with exception details.
-                     If False, returns the string representation of the exception.
+            exception: The exception instance to serialize.
 
         Returns:
             A JSON-serializable representation of the exception.
-        
+
         Example:
             >>> try:
             ...     1 / 0
@@ -228,23 +227,24 @@ class TypeUtils:
             ...     TypeUtils.serialize_exception(e)
             {'type': 'ZeroDivisionError', 'message': 'division by zero'}
         """
-        if as_dict:
-            exception_dict = {
-                'name': type(exception).__name__,
-                'message': str(exception),
-            }
-            if exception.__cause__ is not None:
-                exception_dict['cause'] = TypeUtils.serialize_exception(exception.__cause__, as_dict=True)
-            return exception_dict
-        return str(exception)
+        exception_dict = {
+            'name': type(exception).__name__,
+            'message': str(exception),
+        }
+        if exception.__cause__ is not None:
+            exception_dict['cause'] = TypeUtils.serialize_exception(exception.__cause__)
+        return exception_dict
     
     @staticmethod
     def serialize(obj: Any) -> Any:
         """Serialize an object to a JSON-compatible representation.
 
-        Handles different object types:
-        - JSON primitive types (str, int, float, bool, None, dict, list): returned as-is
+        Transforms objects to their serializable form:
+        - JSON simple primitives (str, int, float, bool, None): returned as-is
+        - dict: recursively serializes all values
+        - list/tuple: recursively serializes all items (tuples become lists)
         - Objects implementing to_dict() protocol: calls to_dict()
+        - Exceptions: serialized via serialize_exception()
         - Other types: converted to string representation
 
         Args:
@@ -256,20 +256,33 @@ class TypeUtils:
         Example:
             >>> TypeUtils.serialize("hello")
             'hello'
-            >>> TypeUtils.serialize({"key": "value"})
-            {'key': 'value'}
-            >>> class Custom:
-            ...     def to_dict(self): return {"data": 1}
-            >>> TypeUtils.serialize(Custom())
-            {'data': 1}
+            >>> TypeUtils.serialize({"key": CustomObj()})
+            {'key': {'serialized': 'data'}}
+            >>> TypeUtils.serialize([1, CustomObj(), "text"])
+            [1, {'serialized': 'data'}, 'text']
         """
-        if TypeUtils.is_json_primitive(obj):
+        # Simple primitives (not containers) - return as-is
+        if obj is None or isinstance(obj, (str, int, float, bool)):
             return obj
+
+        # Dict: recursively serialize values
+        if isinstance(obj, dict):
+            return {key: TypeUtils.serialize(value) for key, value in obj.items()}
+        
+        # Recurse serialization collection types
+        if isinstance(obj, (list, tuple)):
+            return [TypeUtils.serialize(item) for item in obj]
+
+        # Objects with to_dict() protocol
         if TypeUtils.has_to_dict(obj):
             serializable: Serializable = obj
             return serializable.to_dict()
+
+        # Exceptions
         if TypeUtils.is_exception(obj):
-            return TypeUtils.serialize_exception(obj, as_dict=True)
+            return TypeUtils.serialize_exception(obj)
+
+        # Fallback: string representation
         return str(obj)
 
 
@@ -484,6 +497,7 @@ class UnwrapValueMixin(Generic[V]):
             return TypeUtils.serialize(result)
         return result
 
+
 class UnwrapCauseMixin(Generic[E]):
     """Mixin for unwrapping causes from Err instances.
 
@@ -534,6 +548,7 @@ class UnwrapCauseMixin(Generic[E]):
         if as_dict and result is not None:
             return TypeUtils.serialize(result)
         return result
+
 
 class MapValueMixin(Generic[V, M]):
     """Mixin for mapping/transforming values in Ok instances.
@@ -757,7 +772,8 @@ class Ok(Generic[V, M],
         }
 
         if self.metadata is not None:
-            result["metadata"] = dict(self.metadata)
+            # Recursively serialize metadata values (they may contain complex objects)
+            result["metadata"] = TypeUtils.serialize(dict(self.metadata))
 
         return result
 
@@ -899,7 +915,8 @@ class Err(Generic[E, M],
         }
 
         if self.metadata is not None:
-            result["metadata"] = dict(self.metadata)
+            # Recursively serialize metadata values (they may contain complex objects)
+            result["metadata"] = TypeUtils.serialize(dict(self.metadata))
 
         return result
 
