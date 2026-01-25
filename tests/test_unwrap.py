@@ -394,13 +394,31 @@ class TestErrUnwrapAsDict:
         assert isinstance(result, dict)
 
     def test_unwrap_as_dict_with_exception_cause(self):
-        """Test as_dict=True with exception returns string representation."""
+        """Test as_dict=True with exception returns structured dict."""
         exception = ValueError("invalid input")
         err = Err(cause=exception)
         result = err.unwrap(as_dict=True)
-        # Exceptions don't have to_dict, so they become strings
-        assert result == "invalid input"
-        assert isinstance(result, str)
+        # Exceptions are serialized to structured dicts with name and message
+        assert result == {"name": "ValueError", "message": "invalid input"}
+        assert isinstance(result, dict)
+
+    def test_unwrap_as_dict_with_chained_exception_cause(self):
+        """Test as_dict=True with chained exception returns nested dict."""
+        try:
+            try:
+                raise ValueError("root cause")
+            except ValueError as inner:
+                raise TypeError("wrapper") from inner
+        except TypeError as chained:
+            err = Err(cause=chained)
+            result = err.unwrap(as_dict=True)
+
+        assert isinstance(result, dict)
+        assert result["name"] == "TypeError"
+        assert result["message"] == "wrapper"
+        assert "cause" in result
+        assert result["cause"]["name"] == "ValueError"
+        assert result["cause"]["message"] == "root cause"
 
     def test_unwrap_as_dict_with_serializable_cause(self):
         """Test as_dict=True with object implementing to_dict()."""
