@@ -191,7 +191,53 @@ class TypeUtils:
             False
         """
         return isinstance(obj, Serializable)
+    
+    @staticmethod
+    def is_exception(obj: Any) -> bool:
+        """Check if an object is an exception instance.
 
+        Args:
+            obj: The object to check.
+        Returns:
+            True if the object is an instance of BaseException, False otherwise.
+        
+        Example:
+            >>> TypeUtils.is_exception(ValueError("invalid"))
+            True
+            >>> TypeUtils.is_exception("not an exception")
+            False
+        """
+        return isinstance(obj, BaseException)
+
+    @staticmethod
+    def serialize_exception(exception: BaseException, as_dict: bool = False) -> Any:
+        """Serialize an exception to a JSON-compatible representation.
+
+        Args:
+            exc: The exception instance to serialize.
+            as_dict: If True, returns a dictionary with exception details.
+                     If False, returns the string representation of the exception.
+
+        Returns:
+            A JSON-serializable representation of the exception.
+        
+        Example:
+            >>> try:
+            ...     1 / 0
+            ... except ZeroDivisionError as e:
+            ...     TypeUtils.serialize_exception(e)
+            {'type': 'ZeroDivisionError', 'message': 'division by zero'}
+        """
+        if as_dict:
+            exception_dict = {
+                'name': type(exception).__name__,
+                'message': str(exception),
+            }
+            if exception.__cause__ is not None:
+                exception_dict['cause'] = TypeUtils.serialize_exception(exception.__cause__, as_dict=True)
+            return exception_dict
+        return str(exception)
+    
     @staticmethod
     def serialize(obj: Any) -> Any:
         """Serialize an object to a JSON-compatible representation.
@@ -222,6 +268,8 @@ class TypeUtils:
         if TypeUtils.has_to_dict(obj):
             serializable: Serializable = obj
             return serializable.to_dict()
+        if TypeUtils.is_exception(obj):
+            return TypeUtils.serialize_exception(obj, as_dict=True)
         return str(obj)
 
 
