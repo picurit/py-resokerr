@@ -1,4 +1,5 @@
 """Tests for Ok and Err to_dict() serialization methods."""
+import json
 import pytest
 from typing import Any, Dict
 
@@ -162,13 +163,71 @@ class TestErrToDict:
         assert result["is_err"] is True
 
     def test_to_dict_with_exception_cause(self):
-        """Test to_dict with exception as cause (falls back to str)."""
+        """Test to_dict with exception as cause serializes to structured dict."""
         err = Err(cause=ValueError("Invalid input"))
         result = err.to_dict()
 
-        # Exceptions don't have to_dict, so they're converted to string
-        assert "Invalid input" in result["cause"]
+        # Exceptions are serialized to structured dicts with name and message
+        assert result["cause"] == {"name": "ValueError", "message": "Invalid input"}
         assert result["is_err"] is True
+
+    def test_to_dict_with_chained_exception_cause(self):
+        """Test to_dict with chained exception (exception with __cause__)."""
+        try:
+            try:
+                raise ValueError("Original error")
+            except ValueError as original:
+                raise TypeError("Wrapper error") from original
+        except TypeError as chained:
+            err = Err(cause=chained)
+            result = err.to_dict()
+
+        # Chained exceptions should include nested cause
+        assert result["cause"]["name"] == "TypeError"
+        assert result["cause"]["message"] == "Wrapper error"
+        assert "cause" in result["cause"]
+        assert result["cause"]["cause"]["name"] == "ValueError"
+        assert result["cause"]["cause"]["message"] == "Original error"
+
+    def test_to_dict_with_deeply_chained_exception(self):
+        """Test to_dict with multiple levels of chained exceptions."""
+        try:
+            try:
+                try:
+                    raise KeyError("root cause")
+                except KeyError as e1:
+                    raise ValueError("middle error") from e1
+            except ValueError as e2:
+                raise RuntimeError("top error") from e2
+        except RuntimeError as chained:
+            err = Err(cause=chained)
+            result = err.to_dict()
+
+        # Three levels of chaining
+        assert result["cause"]["name"] == "RuntimeError"
+        assert result["cause"]["message"] == "top error"
+        assert result["cause"]["cause"]["name"] == "ValueError"
+        assert result["cause"]["cause"]["message"] == "middle error"
+        assert result["cause"]["cause"]["cause"]["name"] == "KeyError"
+        assert result["cause"]["cause"]["cause"]["message"] == "'root cause'"
+
+    def test_to_dict_chained_exception_is_json_serializable(self):
+        """Test that chained exceptions serialize to valid JSON."""
+        try:
+            try:
+                raise ValueError("inner")
+            except ValueError as inner:
+                raise TypeError("outer") from inner
+        except TypeError as chained:
+            err = Err(cause=chained)
+            result = err.to_dict()
+
+        # Should not raise - valid JSON
+        json_str = json.dumps(result)
+        parsed = json.loads(json_str)
+
+        assert parsed["cause"]["name"] == "TypeError"
+        assert parsed["cause"]["cause"]["name"] == "ValueError"
 
     def test_to_dict_with_messages(self):
         """Test to_dict includes serialized messages."""
