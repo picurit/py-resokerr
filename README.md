@@ -48,6 +48,7 @@ Instead, it's a **pragmatic, Pythonic tool** for scenarios where explicit result
 - **`Ok` and `Err` are independent classes**: They don't inherit from a common `Result` base class
 - **`Result` is a type alias**: `Result = Union[Ok[V, M], Err[E, M]]` represents a union type, not a superclass
 - **No polymorphic conversions**: You cannot convert `Ok` to `Err` (or vice versa) through inheritance—each represents a distinct logical state
+- **`@final` decorator**: Both `Ok` and `Err` are marked with `@final`, preventing subclassing
 - **Mixins provide shared behavior**: Both classes compose functionality from mixins (`ErrorCollectorMixin`, `InfoCollectorMixin`, `WarningCollectorMixin`, etc.)
 
 This design ensures:
@@ -955,6 +956,26 @@ def save_to_database(data: dict) -> Result[int, Exception]:
 
 ## API Reference
 
+### Generic Type Parameters
+
+The library uses the following generic type parameters:
+
+- **`V`** (Value): The type of the success value in `Ok`
+- **`E`** (Error): The type of the error cause in `Err`
+- **`M`** (Message): The type of message content in `MessageTrace`
+
+```python
+# Ok with int value and string messages
+ok: Ok[int, str] = Ok(value=42)
+
+# Err with Exception cause and string messages
+err: Err[Exception, str] = Err(cause=ValueError("invalid"))
+
+# Result with dict value, str error, and string messages
+def fetch() -> Result[dict, str]:
+    ...
+```
+
 ### Core Types
 
 #### `Ok[V, M]`
@@ -963,8 +984,8 @@ Represents a successful result.
 
 **Attributes:**
 - `value: Optional[V]` - The success value
-- `messages: Tuple[MessageTrace[M], ...]` - Info and warning messages
-- `metadata: Optional[Mapping[str, Any]]` - Additional context
+- `messages: Tuple[MessageTrace[M], ...]` - Info and warning messages (accepts list or tuple in constructor, converted to tuple internally for immutability)
+- `metadata: Optional[Mapping[str, Any]]` - Additional context (converted to `MappingProxyType` for immutability)
 
 **Methods:**
 - `is_ok() -> bool` - Returns `True`
@@ -993,8 +1014,8 @@ Represents a failed result.
 
 **Attributes:**
 - `cause: Optional[E]` - The error/exception that caused failure
-- `messages: Tuple[MessageTrace[M], ...]` - Error, warning, and info messages
-- `metadata: Optional[Mapping[str, Any]]` - Additional context
+- `messages: Tuple[MessageTrace[M], ...]` - Error, warning, and info messages (accepts list or tuple in constructor, converted to tuple internally for immutability)
+- `metadata: Optional[Mapping[str, Any]]` - Additional context (converted to `MappingProxyType` for immutability)
 
 **Methods:**
 - `is_ok() -> bool` - Returns `False`
@@ -1025,7 +1046,7 @@ Immutable message with severity tracking.
 - `message: M` - The message content (any type)
 - `severity: TraceSeverityLevel` - SUCCESS, INFO, WARNING, or ERROR
 - `code: Optional[str]` - Optional error/warning code
-- `details: Optional[Mapping[str, Any]]` - Additional details
+- `details: Optional[Mapping[str, Any]]` - Additional details (converted to `MappingProxyType` for immutability)
 - `stack_trace: Optional[str]` - Optional stack trace
 
 **Factory Methods:**
@@ -1036,6 +1057,32 @@ Immutable message with severity tracking.
 
 **Instance Methods:**
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary. Returns a dict with `message`, `severity`, and optionally `code`, `details`, `stack_trace` (only included if not None)
+
+#### `TraceSeverityLevel`
+
+Enum representing message severity levels.
+
+**Values:**
+- `TraceSeverityLevel.SUCCESS` - `"success"` - Positive outcome messages
+- `TraceSeverityLevel.INFO` - `"info"` - Informational breadcrumbs
+- `TraceSeverityLevel.WARNING` - `"warning"` - Non-critical issues
+- `TraceSeverityLevel.ERROR` - `"error"` - Critical failures
+
+```python
+from resokerr import TraceSeverityLevel, MessageTrace
+
+# Use with factory methods
+msg = MessageTrace.info("Operation started")  # severity = TraceSeverityLevel.INFO
+
+# Or explicit construction
+msg = MessageTrace(
+    message="Custom message",
+    severity=TraceSeverityLevel.WARNING
+)
+
+# Access the string value
+print(TraceSeverityLevel.ERROR.value)  # "error"
+```
 
 #### Type Aliases
 
