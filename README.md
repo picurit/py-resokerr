@@ -507,7 +507,10 @@ print(type(serialized))              # <class 'dict'>
 
 | Type | Result |
 |------|--------|
-| JSON primitives (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`) | Returned as-is |
+| JSON primitives (`str`, `int`, `float`, `bool`, `None`) | Returned as-is |
+| `dict` | Recursively serializes all values |
+| `list` / `tuple` | Recursively serializes all items (tuples become lists) |
+| Exceptions | Serialized to `{"name": "...", "message": "...", "cause": {...}}` |
 | Objects with `to_dict()` method | `to_dict()` is called |
 | Other objects | Converted to string via `str()` |
 
@@ -518,9 +521,28 @@ from resokerr import Ok, Err
 ok = Ok(value={"key": "value"})
 ok.unwrap(as_dict=True)  # {"key": "value"}
 
-# Objects without to_dict() become strings
+# Exceptions are serialized to structured dicts
 err = Err(cause=ValueError("invalid"))
-err.unwrap(as_dict=True)  # "invalid"
+err.unwrap(as_dict=True)  # {"name": "ValueError", "message": "invalid"}
+
+# Chained exceptions include nested cause
+try:
+    try:
+        raise ValueError("root cause")
+    except ValueError as inner:
+        raise TypeError("wrapper") from inner
+except TypeError as chained:
+    err = Err(cause=chained)
+    err.unwrap(as_dict=True)
+    # {"name": "TypeError", "message": "wrapper", "cause": {"name": "ValueError", "message": "root cause"}}
+
+# Nested objects are recursively serialized
+class User:
+    def __init__(self, name): self.name = name
+    def to_dict(self): return {"name": self.name}
+
+ok = Ok(value={"users": [User("Alice"), User("Bob")]})
+ok.unwrap(as_dict=True)  # {"users": [{"name": "Alice"}, {"name": "Bob"}]}
 
 # Combined with default
 ok_empty = Ok(value=None)
@@ -695,9 +717,12 @@ print(serialized_messages)
 
 **How serialization works for values and causes:**
 
-- **JSON primitive types** (`str`, `int`, `float`, `bool`, `None`, `dict`, `list`): Returned as-is
+- **JSON primitive types** (`str`, `int`, `float`, `bool`, `None`): Returned as-is
+- **`dict`**: Recursively serializes all values
+- **`list` / `tuple`**: Recursively serializes all items (tuples become lists)
+- **Exceptions**: Serialized to structured dict with `name`, `message`, and `cause` (for chained exceptions)
 - **Objects with `to_dict()` method**: The method is called to serialize them
-- **Other objects** (e.g., exceptions): Converted to string using `str()`
+- **Other objects**: Converted to string using `str()`
 
 ```python
 from resokerr import Ok, Err
@@ -717,10 +742,33 @@ ok = Ok(value=user)
 print(ok.to_dict()["value"])
 # {'name': 'Alice', 'email': 'alice@example.com'}
 
-# Exceptions are converted to string
+# Exceptions are serialized to structured dicts
 err = Err(cause=ValueError("Invalid input"))
 print(err.to_dict()["cause"])
-# "Invalid input"
+# {'name': 'ValueError', 'message': 'Invalid input'}
+
+# Chained exceptions preserve the cause chain
+try:
+    try:
+        raise ValueError("Database connection failed")
+    except ValueError as db_error:
+        raise RuntimeError("Could not save user") from db_error
+except RuntimeError as e:
+    err = Err(cause=e)
+    print(err.to_dict()["cause"])
+# {
+#   'name': 'RuntimeError',
+#   'message': 'Could not save user',
+#   'cause': {
+#     'name': 'ValueError',
+#     'message': 'Database connection failed'
+#   }
+# }
+
+# Nested structures are recursively serialized
+ok = Ok(value={"users": [UserData("Alice", "a@test.com"), UserData("Bob", "b@test.com")]})
+print(ok.to_dict()["value"])
+# {'users': [{'name': 'Alice', 'email': 'a@test.com'}, {'name': 'Bob', 'email': 'b@test.com'}]}
 ```
 
 ## Best Practices
@@ -902,9 +950,9 @@ Represents a successful result.
 - `with_info(message, code, details, stack_trace) -> Ok` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Ok` - Add warning message
 - `with_metadata(metadata) -> Ok` - Replace metadata
-- `unwrap(default=None, as_dict=False) -> Union[V, Any]` - Extract the contained value, returning `default` if value is `None`. If `as_dict=True`, returns a JSON-serializable representation
+- `unwrap(default=None, as_dict=False) -> Union[V, Any]` - Extract the contained value, returning `default` if value is `None`. If `as_dict=True`, returns a JSON-serializable representation (nested objects are recursively serialized)
 - `map(f: Callable[[V], T]) -> Ok[T, M]` - Apply transformation function to the value, preserving messages and metadata
-- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `value`, `messages`, and optionally `metadata`
+- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `value`, `messages`, and optionally `metadata`. Values are recursively serialized (objects with `to_dict()` are called, exceptions become `{name, message, cause}`)
 
 **Properties:**
 - `info_messages` - Tuple of info messages
@@ -931,9 +979,9 @@ Represents a failed result.
 - `with_info(message, code, details, stack_trace) -> Err` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Err` - Add warning message
 - `with_metadata(metadata) -> Err` - Replace metadata
-- `unwrap(default=None, as_dict=False) -> Union[E, Any]` - Extract the contained cause, returning `default` if cause is `None`. If `as_dict=True`, returns a JSON-serializable representation
+- `unwrap(default=None, as_dict=False) -> Union[E, Any]` - Extract the contained cause, returning `default` if cause is `None`. If `as_dict=True`, returns a JSON-serializable representation (exceptions become `{name, message, cause}`, nested objects are recursively serialized)
 - `map(f: Callable[[E], T]) -> Err[T, M]` - Apply transformation function to the cause, preserving messages and metadata
-- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `cause`, `messages`, and optionally `metadata`
+- `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `cause`, `messages`, and optionally `metadata`. Causes are recursively serialized (exceptions become `{name, message, cause}` preserving the chain)
 
 **Properties:**
 - `error_messages` - Tuple of error messages
