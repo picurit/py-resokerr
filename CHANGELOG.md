@@ -1,3 +1,13 @@
+## v1.1.0 (2026-01-26)
+
+### Feat
+
+- :sparkles: Add exception serialization methods to TypeUtils
+
+### Fix
+
+- :adhesive_bandage: Enhance exception serialization and detail handling in TypeUtils
+
 ## v1.0.0 (2026-01-23)
 
 ### BREAKING CHANGE
