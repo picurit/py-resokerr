@@ -376,12 +376,13 @@ result: ResultBase[dict, Exception, AppError] = Ok(value={"data": 123}, messages
 
 ### Message Severity Levels
 
-Messages support three severity levels:
+Messages support four severity levels:
 
 ```python
 from resokerr import MessageTrace, TraceSeverityLevel
 
-# Factory methods
+# Factory methods for each severity level
+success_msg = MessageTrace.success("Operation completed successfully")
 info_msg = MessageTrace.info("Operation started")
 warn_msg = MessageTrace.warning("Deprecated API used", code="DEPRECATED")
 error_msg = MessageTrace.error("Failed to connect", code="CONN_ERR")
@@ -395,23 +396,48 @@ custom_msg = MessageTrace(
 )
 ```
 
-### Automatic Error Downgrading in Ok
+**Severity level semantics:**
 
-`Ok` instances **cannot contain ERROR-severity messages**. Any ERROR messages are automatically downgraded to WARNING with metadata explaining the conversion:
+| Level | Use in `Ok` | Use in `Err` | Description |
+|-------|-------------|--------------|-------------|
+| `SUCCESS` | ✅ Allowed | ⚠️ Converted to INFO | Positive outcome messages |
+| `INFO` | ✅ Allowed | ✅ Allowed | Informational breadcrumbs |
+| `WARNING` | ✅ Allowed | ✅ Allowed | Non-critical issues |
+| `ERROR` | ⚠️ Converted to WARNING | ✅ Allowed | Critical failures |
 
+### Automatic Message Severity Conversion
+
+To maintain semantic correctness, certain severity levels are automatically converted:
+
+**In `Ok` instances:** ERROR messages are converted to WARNING
 ```python
-from resokerr import Ok, MessageTrace
+from resokerr import Ok, MessageTrace, TraceSeverityLevel
 
 error_msg = MessageTrace.error("This is an error")
 ok = Ok(value=42, messages=[error_msg])
 
-# The error was downgraded to warning
+# The error was converted to warning
 assert ok.messages[0].severity == TraceSeverityLevel.WARNING
-assert "downgraded" in ok.messages[0].details
-# Details: {"downgraded": {"from": "error", "reason": "Ok instances cannot contain ERROR messages"}}
+assert "_converted_from" in ok.messages[0].details
+# Details: {"_converted_from": {"from": "error", "reason": "Ok instances cannot contain ERROR messages"}}
 ```
 
-This design ensures **semantic correctness**: successful results shouldn't contain error-level messages.
+**In `Err` instances:** SUCCESS messages are converted to INFO
+```python
+from resokerr import Err, MessageTrace, TraceSeverityLevel
+
+success_msg = MessageTrace.success("This was successful")
+err = Err(cause="Error occurred", messages=[success_msg])
+
+# The success was converted to info
+assert err.messages[0].severity == TraceSeverityLevel.INFO
+assert "_converted_from" in err.messages[0].details
+# Details: {"_converted_from": {"from": "success", "reason": "Err instances cannot contain SUCCESS messages"}}
+```
+
+This design ensures **semantic correctness**:
+- Successful results (`Ok`) shouldn't contain error-level messages
+- Failed results (`Err`) shouldn't contain success-level messages
 
 ### Metadata Support
 
@@ -945,8 +971,10 @@ Represents a successful result.
 - `is_err() -> bool` - Returns `False`
 - `has_value() -> bool` - Check if value is not None
 - `has_metadata() -> bool` - Check if metadata exists
+- `has_successes() -> bool` - Check for success messages
 - `has_info() -> bool` - Check for info messages
 - `has_warnings() -> bool` - Check for warning messages
+- `with_success(message, code, details, stack_trace) -> Ok` - Add success message
 - `with_info(message, code, details, stack_trace) -> Ok` - Add info message
 - `with_warning(message, code, details, stack_trace) -> Ok` - Add warning message
 - `with_metadata(metadata) -> Ok` - Replace metadata
@@ -955,6 +983,7 @@ Represents a successful result.
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary with `is_ok`, `is_err`, `value`, `messages`, and optionally `metadata`. Values are recursively serialized (objects with `to_dict()` are called, exceptions become `{name, message, cause}`)
 
 **Properties:**
+- `success_messages` - Tuple of success messages
 - `info_messages` - Tuple of info messages
 - `warning_messages` - Tuple of warning messages
 
@@ -994,16 +1023,16 @@ Immutable message with severity tracking.
 
 **Attributes:**
 - `message: M` - The message content (any type)
-- `severity: TraceSeverityLevel` - INFO, WARNING, or ERROR
+- `severity: TraceSeverityLevel` - SUCCESS, INFO, WARNING, or ERROR
 - `code: Optional[str]` - Optional error/warning code
 - `details: Optional[Mapping[str, Any]]` - Additional details
 - `stack_trace: Optional[str]` - Optional stack trace
 
 **Factory Methods:**
+- `MessageTrace.success(message, code, details, stack_trace)` - Create SUCCESS message
 - `MessageTrace.info(message, code, details, stack_trace)` - Create INFO message
 - `MessageTrace.warning(message, code, details, stack_trace)` - Create WARNING message
 - `MessageTrace.error(message, code, details, stack_trace)` - Create ERROR message
-- `MessageTrace.success(message, code, details, stack_trace)` - Create SUCCESS message
 
 **Instance Methods:**
 - `to_dict() -> Dict[str, Any]` - Serialize to a dictionary. Returns a dict with `message`, `severity`, and optionally `code`, `details`, `stack_trace` (only included if not None)
